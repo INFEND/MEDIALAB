@@ -1,0 +1,10 @@
+.gradle/
+**/build/
+local.properties
+app/libs/*.aar
+!app/libs/README_AAR.txt
+dist/
+*.apk
+*.keystore
+*.jks
+*.p12

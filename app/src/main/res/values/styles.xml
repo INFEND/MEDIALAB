@@ -1,0 +1,46 @@
+<resources>
+    <style name="Theme.MediaLab" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#0B0E17</item>
+        <item name="android:navigationBarColor">#0B0E17</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:colorAccent">#80A8FF</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+    <style name="Theme.MediaLab.Light" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#F3F5FA</item>
+        <item name="android:navigationBarColor">#F3F5FA</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:colorAccent">#80A8FF</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+    <!-- Base of all implicit Accent.* style parents. Required by AAPT2. -->
+    <style name="Accent" />
+    <style name="Accent.Lazur"><item name="android:colorAccent">#80A8FF</item></style>
+    <style name="Accent.Blue"><item name="android:colorAccent">#57C7FF</item></style>
+    <style name="Accent.Violet"><item name="android:colorAccent">#AB86FF</item></style>
+    <style name="Accent.Green"><item name="android:colorAccent">#62D5B3</item></style>
+    <style name="Accent.Amber"><item name="android:colorAccent">#FFBE65</item></style>
+    <style name="Accent.Pink"><item name="android:colorAccent">#FF8CBC</item></style>
+    <style name="Accent.Red"><item name="android:colorAccent">#FF786F</item></style>
+    <style name="Accent.Turquoise"><item name="android:colorAccent">#22C8C7</item></style>
+    <style name="Accent.Mint"><item name="android:colorAccent">#79E5C3</item></style>
+    <style name="Accent.Teal"><item name="android:colorAccent">#36BFA4</item></style>
+    <style name="Accent.Indigo"><item name="android:colorAccent">#6F82F9</item></style>
+    <style name="Accent.Lavender"><item name="android:colorAccent">#BBA5FF</item></style>
+    <style name="Accent.Lilac"><item name="android:colorAccent">#B97AFE</item></style>
+    <style name="Accent.Purple"><item name="android:colorAccent">#AD66F1</item></style>
+    <style name="Accent.Fuchsia"><item name="android:colorAccent">#E36AC7</item></style>
+    <style name="Accent.Raspberry"><item name="android:colorAccent">#EE5A91</item></style>
+    <style name="Accent.Coral"><item name="android:colorAccent">#FF8977</item></style>
+    <style name="Accent.Orange"><item name="android:colorAccent">#FFA65D</item></style>
+    <style name="Accent.Gold"><item name="android:colorAccent">#E9C46A</item></style>
+    <style name="Accent.Lime"><item name="android:colorAccent">#B5DA65</item></style>
+    <style name="Accent.Olive"><item name="android:colorAccent">#A8B66D</item></style>
+    <style name="Accent.Sky"><item name="android:colorAccent">#74C9F9</item></style>
+    <style name="Accent.Ice"><item name="android:colorAccent">#9CDAE9</item></style>
+    <style name="Accent.Graphite"><item name="android:colorAccent">#9CA9C5</item></style>
+</resources>

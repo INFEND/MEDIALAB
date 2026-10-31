@@ -1,0 +1,56 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The FFmpegKit binary is read exclusively from MediaLAB/app/libs.
+// No parent folders, auto-copying, or online FFmpeg dependency resolution.
+def localFfmpegAar = file('libs/ffmpeg-kit-full-8.1.9.aar')
+if (!localFfmpegAar.isFile() || localFfmpegAar.length() < 1000000L) {
+    throw new GradleException('MediaLAB: missing or invalid app/libs/ffmpeg-kit-full-8.1.9.aar. Keep the AAR in MediaLAB/app/libs before building.')
+}
+
+android {
+    namespace 'com.xarkon.medialab'
+    compileSdk 35
+    buildFeatures { buildConfig true }
+
+    defaultConfig {
+        applicationId 'com.xarkon.medialab'
+        minSdk 29
+        targetSdk 35
+        versionCode 22
+        versionName '1.3.0'
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    sourceSets {
+        main {
+            java.srcDir 'src/local_ffmpeg_compat/java'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging false
+        }
+    }
+}
+
+dependencies {
+    implementation files(localFfmpegAar)
+}
+
+logger.lifecycle('MediaLAB 1.3.0: bundled FFmpegKit Full AAR from app/libs')
