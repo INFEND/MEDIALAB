@@ -12,3 +12,5 @@ Repository: https://github.com/INFEND/MEDIALAB
 
 ## Notes
 Never commit release signing keys, secrets, passwords, or an unverified third-party AAR. Build step checks the SHA-256 of FFmpeg binary published by its upstream GitHub release.
+
+The workflow accepts legacy secret names `MEDIA_LAB_SIGNING_BUNDLE`, `MEDIALAB_RELEASE_SIGNING_BUNDLE`, `ANDROID_SIGNING_BUNDLE`, `SIGNING_BUNDLE` and `MEDIALAB_SIGNING`. All values must be Base64 ZIP bundles with signing.json and one PKCS12 file.
