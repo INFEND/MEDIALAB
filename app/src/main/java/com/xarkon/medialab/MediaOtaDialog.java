@@ -17,6 +17,7 @@ public final class MediaOtaDialog {
  private final Dialog dialog;
  private final TextView title,detail,bytes,percent,notes,primary,secondary;
  private final ProgressBar spinner,progress;
+ private final OtaRingView ring;
  private final ScrollView history;
  private final int accent;
  private android.animation.ValueAnimator numberAnimation;
@@ -42,7 +43,11 @@ public final class MediaOtaDialog {
   spinner=new ProgressBar(a);spinner.setIndeterminateTintList(ColorStateList.valueOf(tint));
   spinner.setContentDescription("Проверка обновления MediaLAB");
   LinearLayout.LayoutParams spinLp=new LinearLayout.LayoutParams(dp(39),dp(39));spinLp.rightMargin=dp(15);
-  header.addView(spinner,spinLp);
+  FrameLayout ringFrame=new FrameLayout(a);
+  ring=new OtaRingView(a,tint);
+  ringFrame.addView(ring,new FrameLayout.LayoutParams(dp(39),dp(39),Gravity.CENTER));
+  ringFrame.addView(spinner,new FrameLayout.LayoutParams(dp(22),dp(22),Gravity.CENTER));
+  header.addView(ringFrame,spinLp);
   title=label("Обновление MediaLAB",20,fg);title.setTypeface(null,Typeface.BOLD);
   header.addView(title);root.addView(header);
   detail=label("Подключение к серверу…",13,muted);
@@ -88,7 +93,7 @@ public final class MediaOtaDialog {
   progress.setIndeterminate(true);history.setVisibility(View.GONE);
   primary.setVisibility(View.GONE);bytes.setText("");percent.setText("");
   if(numberAnimation!=null)numberAnimation.cancel();displayedProgress=0;
-  progress.setProgress(0);
+  progress.setProgress(0);ring.setProgressFraction(0f);
  }
  public void offer(String version,String changes,Runnable action){
   title.setText("Доступно обновление");detail.setText("MediaLAB "+version);
@@ -110,13 +115,13 @@ public final class MediaOtaDialog {
    numberAnimation.setInterpolator(new android.view.animation.DecelerateInterpolator());
    numberAnimation.addUpdateListener(animation->{
     int shown=(int)animation.getAnimatedValue();
-    progress.setProgress(shown);percent.setText(shown/10+"%");
+    progress.setProgress(shown);ring.setProgressFraction(shown/1000f);percent.setText(shown/10+"%");
    });
    numberAnimation.start();displayedProgress=value;}
  }
  public void ready(String version,Runnable install){
   title.setText("Обновление загружено");detail.setText("MediaLAB "+version+" · APK проверен");
-  spinner.setVisibility(View.GONE);progress.setIndeterminate(false);progress.setProgress(1000);
+  spinner.setVisibility(View.GONE);progress.setIndeterminate(false);progress.setProgress(1000);ring.setProgressFraction(1f);
   if(numberAnimation!=null)numberAnimation.cancel();displayedProgress=1000;
   percent.setText("100%");bytes.setText("");history.setVisibility(View.GONE);
   primary.setText("УСТАНОВИТЬ");primary.setVisibility(View.VISIBLE);
@@ -130,7 +135,7 @@ public final class MediaOtaDialog {
  }
  public void fail(String message,Runnable retry){
   title.setText("Ошибка обновления");detail.setText(message);
-  spinner.setVisibility(View.GONE);progress.setIndeterminate(false);progress.setProgress(0);
+  spinner.setVisibility(View.GONE);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
   if(numberAnimation!=null)numberAnimation.cancel();
   history.setVisibility(View.GONE);bytes.setText("");percent.setText("");
   primary.setText("ПОВТОРИТЬ");primary.setVisibility(retry==null?View.GONE:View.VISIBLE);
