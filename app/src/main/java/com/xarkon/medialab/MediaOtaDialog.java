@@ -40,6 +40,7 @@ public final class MediaOtaDialog {
   root.setBackground(bg(light?0xfff9fbfd:mode==1?0xff101012:0xff15212d,light?0xffdce3ec:0xff304050));
   LinearLayout header=new LinearLayout(a);header.setGravity(Gravity.CENTER_VERTICAL);
   spinner=new ProgressBar(a);spinner.setIndeterminateTintList(ColorStateList.valueOf(tint));
+  spinner.setContentDescription("Проверка обновления MediaLAB");
   LinearLayout.LayoutParams spinLp=new LinearLayout.LayoutParams(dp(39),dp(39));spinLp.rightMargin=dp(15);
   header.addView(spinner,spinLp);
   title=label("Обновление MediaLAB",20,fg);title.setTypeface(null,Typeface.BOLD);
@@ -87,6 +88,7 @@ public final class MediaOtaDialog {
   progress.setIndeterminate(true);history.setVisibility(View.GONE);
   primary.setVisibility(View.GONE);bytes.setText("");percent.setText("");
   if(numberAnimation!=null)numberAnimation.cancel();displayedProgress=0;
+  progress.setProgress(0);
  }
  public void offer(String version,String changes,Runnable action){
   title.setText("Доступно обновление");detail.setText("MediaLAB "+version);
