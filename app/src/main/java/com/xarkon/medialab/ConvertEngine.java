@@ -3,6 +3,10 @@ package com.xarkon.medialab;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
+import android.media.ExifInterface;
 import android.database.Cursor;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
@@ -31,12 +35,56 @@ import java.util.Locale;
 final class ConvertEngine {
     static final int IMAGE = 0, VIDEO = 1, AUDIO = 2, EXTRACT = 3;
     static final String[][] FORMATS = {
-            {"jpg", "png", "webp", "avif", "bmp", "tiff", "gif"},
-            {"mp4", "mkv", "webm", "mov", "avi", "gif"},
-            {"mp3", "m4a", "aac", "ogg", "opus", "flac", "wav", "wma", "aiff"},
-            {"mp3", "m4a", "aac", "ogg", "opus", "flac", "wav", "wma", "aiff", "mka"}
+            {"Исходный", "jpg", "png", "webp", "avif", "bmp", "tiff", "gif"},
+            {"Исходный", "mp4", "mkv", "webm", "mov", "avi", "gif"},
+            {"Исходный", "mp3", "m4a", "aac", "ogg", "opus", "flac", "wav", "wma", "aiff"},
+            {"Исходный", "mp3", "m4a", "aac", "ogg", "opus", "flac", "wav", "wma", "aiff", "mka"}
     };
     static final String[] RESOLUTIONS = {"Исходное", "1080p", "720p", "480p", "360p"};
+
+    /** Resolve the per-file container, required for mixed original-format batches. */
+    static String outputFormat(Config cfg, Source src) {
+        if (!"Исходный".equals(cfg.format)) return cfg.format;
+        if (cfg.mode == EXTRACT) return "m4a"; // audio-only output from a video container
+        String ext = extension(src.name);
+        if ("jpeg".equals(ext) || "jpe".equals(ext)) ext = "jpg";
+        if ("tif".equals(ext)) ext = "tiff";
+        if ("aif".equals(ext)) ext = "aiff";
+        if ("oga".equals(ext)) ext = "ogg";
+        if ("m4v".equals(ext)) ext = "mp4";
+        if ("3gp".equals(ext)) ext = "mp4";
+        for (int i=1; i<FORMATS[cfg.mode].length; i++)
+            if (FORMATS[cfg.mode][i].equals(ext)) return ext;
+        throw new IllegalArgumentException("Исходный формат ."+ext+" не поддерживается кодировщиком. Выберите формат результата вручную.");
+    }
+
+    static Config forSource(Config cfg, Source src) {
+        return new Config(cfg.mode, outputFormat(cfg,src), cfg.quality,
+                cfg.resolution,cfg.audioBitrate,cfg.performance);
+    }
+
+    /** All file sizes are added without opening or decoding the files. */
+    static long totalSourceBytes(List<Source> sources) {
+        long sum=0;
+        for(Source s:sources) {
+            if(s.size<0)return -1;
+            sum = Math.addExact(sum,s.size);
+        }
+        return sum;
+    }
+
+    static long totalQuickEstimate(List<Source> sources,Config cfg,MediaInfo chosenInfo,Uri chosenUri) {
+        long sum=0;
+        for(Source s:sources) {
+            Config item;
+            try {item=forSource(cfg,s);} catch(IllegalArgumentException ex){return -1;}
+            long estimate=quickEstimate(s,item,chosenUri!=null&&chosenUri.equals(s.uri)?chosenInfo:null);
+            if(estimate<0 || sum>Long.MAX_VALUE-estimate)return -1;
+            sum+=estimate;
+        }
+        return sum;
+    }
+
 
     static final class Source {
         final Uri uri;
@@ -78,6 +126,11 @@ final class ConvertEngine {
                 if (z >= 0 && !c.isNull(z)) size = c.getLong(z);
             }
         } catch (Exception ignored) { }
+        if(size<0) {
+            try(android.content.res.AssetFileDescriptor descriptor=ctx.getContentResolver().openAssetFileDescriptor(uri,"r")){
+                if(descriptor!=null && descriptor.getLength()>=0)size=descriptor.getLength();
+            }catch(Exception ignored){}
+        }
         if (name == null || name.trim().isEmpty()) name = "media";
         return new Source(uri, name, size);
     }
@@ -236,19 +289,17 @@ final class ConvertEngine {
         }
         return inf;
     }
-    /** Five non-overlapping points, including the very beginning and the final scene. */
+    /** Preview from the interior of the file, avoiding credits/intro and outro. */
     static List<Long> previewStarts(long durationMs, long clipMs) {
         ArrayList<Long> positions = new ArrayList<>();
-        if (durationMs <= clipMs || durationMs <= 0) {
-            positions.add(0L);
-            return positions;
+        if (durationMs<=0 || durationMs<=clipMs) { positions.add(0L);return positions; }
+        double[] points={.15,.30,.50,.70,.80};
+        long maxStart=Math.max(0,durationMs-clipMs);
+        for(double ratio:points){
+            long next=Math.min(maxStart,Math.max(0,Math.round(durationMs*ratio-clipMs/2.0)));
+            if(positions.isEmpty() || next>=positions.get(positions.size()-1)+clipMs)positions.add(next);
         }
-        long last = Math.max(0, durationMs - clipMs);
-        int count = (int) Math.min(5, Math.max(1, durationMs / clipMs));
-        for (int n = 0; n < count; n++) {
-            long proposed = count == 1 ? 0 : Math.round(last * (double) n / (count - 1));
-            if (positions.isEmpty() || proposed >= positions.get(positions.size() - 1) + clipMs) positions.add(proposed);
-        }
+        if(positions.isEmpty())positions.add(Math.min(maxStart,durationMs/2));
         return positions;
     }
 
@@ -270,7 +321,7 @@ final class ConvertEngine {
         int processors = Math.max(2, Runtime.getRuntime().availableProcessors());
         int threads = cfg.performance == 0 ? 2 : cfg.performance == 1 ? 4 :
                 cfg.performance == 2 ? Math.max(2, processors - 2) : processors;
-        String threadCount = String.valueOf(Math.min(16, threads));
+        String threadCount = String.valueOf(Math.min(32, threads));
         add(args, "-threads", threadCount);
         if (startMs > 0 && cfg.mode != IMAGE)
             add(args, "-ss", String.format(Locale.US, "%.3f", startMs / 1000.0));
@@ -285,7 +336,8 @@ final class ConvertEngine {
                     add(args, "-c:v", "mjpeg", "-q:v", String.valueOf(Math.max(2, Math.min(20, 22 - cfg.quality / 5))));
                     break;
                 case "png": add(args, "-c:v", "png", "-compression_level", "9"); break;
-                case "webp": add(args, "-c:v", "libwebp", "-quality", String.valueOf(cfg.quality)); break;
+                case "webp": add(args, "-c:v", "libwebp", "-quality", String.valueOf(cfg.quality),
+                        "-pix_fmt", "yuv420p"); break;
                 case "avif":
                     add(args, "-c:v", "libaom-av1", "-still-picture", "1", "-crf",
                             String.valueOf(56 - cfg.quality * 38 / 100), "-b:v", "0");
@@ -353,6 +405,51 @@ final class ConvertEngine {
     private static void add(List<String> into, String... words) {
         for (String word : words) into.add(word);
     }
+    /** Fast built-in codecs for JPEG/PNG/WebP. No FFmpeg startup per photo. */
+    static boolean convertNativeImage(File input, File output, Config cfg, Canceled canceled) throws IOException {
+        if(cfg.mode!=IMAGE || !among(cfg.format,"jpg","png","webp")) return false;
+        BitmapFactory.Options bounds=new BitmapFactory.Options();
+        bounds.inJustDecodeBounds=true;
+        BitmapFactory.decodeFile(input.getAbsolutePath(),bounds);
+        if(bounds.outWidth<1 || bounds.outHeight<1) return false;
+        // Decode originals at native resolution; large images fall back to FFmpeg streaming.
+        if((long)bounds.outWidth * bounds.outHeight > 24_000_000L)return false;
+        if(canceled.canceled())throw new IOException("Операция отменена");
+        Bitmap decoded=null,oriented=null;
+        try {
+            BitmapFactory.Options opts=new BitmapFactory.Options();
+            opts.inPreferredConfig=Bitmap.Config.ARGB_8888;
+            decoded=BitmapFactory.decodeFile(input.getAbsolutePath(),opts);
+            if(decoded==null)return false;
+            oriented=decoded;
+            try {
+                int orientation=new ExifInterface(input.getAbsolutePath()).getAttributeInt(
+                        ExifInterface.TAG_ORIENTATION,ExifInterface.ORIENTATION_NORMAL);
+                Matrix matrix=new Matrix();
+                if(orientation==ExifInterface.ORIENTATION_ROTATE_90) matrix.postRotate(90);
+                else if(orientation==ExifInterface.ORIENTATION_ROTATE_180)matrix.postRotate(180);
+                else if(orientation==ExifInterface.ORIENTATION_ROTATE_270)matrix.postRotate(270);
+                else if(orientation==ExifInterface.ORIENTATION_FLIP_HORIZONTAL)matrix.postScale(-1,1);
+                else if(orientation==ExifInterface.ORIENTATION_FLIP_VERTICAL)matrix.postScale(1,-1);
+                if(!matrix.isIdentity())oriented=Bitmap.createBitmap(decoded,0,0,decoded.getWidth(),decoded.getHeight(),matrix,true);
+            }catch(Exception ignored) { }
+            if(canceled.canceled())throw new IOException("Операция отменена");
+            Bitmap.CompressFormat nativeFormat = "jpg".equals(cfg.format) ? Bitmap.CompressFormat.JPEG :
+                    "png".equals(cfg.format) ? Bitmap.CompressFormat.PNG :
+                    android.os.Build.VERSION.SDK_INT >= 30 ? Bitmap.CompressFormat.WEBP_LOSSY : Bitmap.CompressFormat.WEBP;
+            try(FileOutputStream out=new FileOutputStream(output)) {
+                if(!oriented.compress(nativeFormat,cfg.quality,out))throw new IOException("Кодировщик изображения не смог создать "+cfg.format);
+            }
+            if(!output.isFile() || output.length()==0)throw new IOException("Пустой результат изображения");
+            return true;
+        } catch(OutOfMemoryError memory) {
+            output.delete();return false; // FFmpeg is safer for very large images.
+        } finally {
+            if(oriented!=null && oriented!=decoded && !oriented.isRecycled())oriented.recycle();
+            if(decoded!=null && !decoded.isRecycled())decoded.recycle();
+        }
+    }
+
     static FFmpegSession convert(File input, File output, Config config, MediaInfo info, long startMs, long lengthMs) {
         List<String> args = command(input, output, config, info, startMs, lengthMs);
         FFmpegSession result = FFmpegKit.executeWithArguments(args.toArray(new String[0]));

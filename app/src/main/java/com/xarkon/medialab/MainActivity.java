@@ -85,11 +85,12 @@ public final class MainActivity extends Activity {
     private long lastJobRevision = -1;
     private long previewSampledMs = 0;
     private int themeChoice = 0, accentChoice = 0;
-    private int performanceChoice = 1;
+    private int performanceChoice = 3;
     private boolean pendingAutoPreview = false;
     private boolean openPreviewWhenReady = false;
     // Declare state before the lambda field initializer to avoid illegal forward references.
     private final ArrayList<ConvertEngine.Source> queue = new ArrayList<>();
+    private int visibleFiles=24;
     private volatile boolean ffmpegReady = false;
     private final java.util.concurrent.atomic.AtomicInteger estimateTicket = new java.util.concurrent.atomic.AtomicInteger();
     private final java.util.HashMap<String, ConvertEngine.MediaInfo> fastInfoCache = new java.util.HashMap<>();
@@ -109,8 +110,19 @@ public final class MainActivity extends Activity {
         pendingAutoPreview = false;
         perform(false);
     };
-    private final int[] savedQuality = {78, 78, 78, 78};
-    private final int[] savedFormat = {2, 0, 0, 0};
+    private final int[] savedQuality = {70, 70, 70, 70};
+    private static final int[] QUALITY_STAGES={1,5,10,20,30,40,55,70,85,95};
+    private static final String[] QUALITY_NAMES={"Экстремальное", "Минимальный объём", "Ультрасжатие", "Очень сильное", "Сильное", "Компактное", "Сбалансированное", "Хорошее", "Высокое", "Максимальное"};
+    private static int stageIndex(int quality) {
+        int nearest=0;
+        for(int i=1;i<QUALITY_STAGES.length;i++)
+            if(Math.abs(QUALITY_STAGES[i]-quality)<Math.abs(QUALITY_STAGES[nearest]-quality))nearest=i;
+        return nearest;
+    }
+    private static String qualityName(int level) {
+        return QUALITY_NAMES[level]+"  ["+QUALITY_STAGES[level]+"%]";
+    }
+    private final int[] savedFormat = {0, 0, 0, 0};
     private final int[] savedResolution = {0, 0, 0, 0};
     private final int[] savedBitrate = {2, 2, 2, 2};
     private VideoView activeVideo;
@@ -149,15 +161,19 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         themeChoice = getPreferences(MODE_PRIVATE).getInt("theme", 0);
         accentChoice = getPreferences(MODE_PRIVATE).getInt("accent", 0);
-        performanceChoice = Math.max(0, Math.min(3, getPreferences(MODE_PRIVATE).getInt("performance", 1)));
+        performanceChoice = Math.max(0, Math.min(3, getPreferences(MODE_PRIVATE).getInt("performance", 3)));
         for (int m = 0; m < 4; m++) {
-            savedQuality[m] = getPreferences(MODE_PRIVATE).getInt("q"+m, 78);
-            savedFormat[m] = getPreferences(MODE_PRIVATE).getInt("f"+m, m==0 ? 2 : 0);
+            savedQuality[m] = QUALITY_STAGES[stageIndex(getPreferences(MODE_PRIVATE).getInt("q"+m, 70))];
+            int previous=getPreferences(MODE_PRIVATE).getInt("f"+m, -1);
+            savedFormat[m] = previous < 0 ? 0 : (getPreferences(MODE_PRIVATE).getBoolean("format_v2",false) ? previous : previous+1);
+            savedFormat[m] = Math.max(0,Math.min(ConvertEngine.FORMATS[m].length-1,savedFormat[m]));
             savedResolution[m] = getPreferences(MODE_PRIVATE).getInt("r"+m, 0);
             savedBitrate[m] = getPreferences(MODE_PRIVATE).getInt("b"+m, 2);
         }
         applyColors();
+        MediaOtaSchedule.configure(this);
         if (state != null) restoreInstance(state);
+        if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         getWindow().getDecorView().setSystemUiVisibility(themeChoice == 2 ?
@@ -174,6 +190,8 @@ public final class MainActivity extends Activity {
                 ffmpegDiagnostic = "Фоновый движок активен";
                 updateButtons();
             } else initializeFfmpegAsync();
+            if("com.xarkon.medialab.CHECK_OTA".equals(getIntent().getAction()))
+                ui.postDelayed(()->OtaUpdater.checkAndOffer(this,BLUE),550);
         } catch (Throwable startupError) {
             Log.e(TAG, "UI initialization failed", startupError);
             showEmergencyScreen(startupError);
@@ -344,7 +362,7 @@ public final class MainActivity extends Activity {
         performance.addView(txt("Число потоков не гарантирует ускорения. Android ограничивает работу при перегреве.",11,SECONDARY,false));
 
         LinearLayout preview=settingsGroup(body,"Предпросмотр","Синхронное сравнение до / после",android.R.drawable.ic_menu_slideshow);
-        preview.addView(txt("При изменении качества расчёт запускается после отпускания ползунка. Синхронный предпросмотр создаётся из пяти сцен: начало, 25%, 50%, 75% и конец.",12,SECONDARY,false),boxLp(-1,-2,8));
+        preview.addView(txt("При изменении качества расчёт запускается после отпускания ползунка. Синхронный предпросмотр использует 15%, 30%, 50%, 70% и 80% длительности.",12,SECONDARY,false),boxLp(-1,-2,8));
         preview.addView(txt("Шторка начинается с 50% и двигается внутри кадра. Предварительный размер не равен точному размеру готового файла.",12,SECONDARY,false));
 
         LinearLayout otaPanel = settingsGroup(body,"Обновления приложения","GitHub OTA · официальный канал",android.R.drawable.stat_sys_download_done);
@@ -355,6 +373,32 @@ public final class MainActivity extends Activity {
             if (openSettingsDialog != null) openSettingsDialog.dismiss();
             OtaUpdater.checkAndOffer(this, BLUE);
         });
+        android.content.SharedPreferences otaPrefs=getSharedPreferences(MediaOtaSchedule.PREF,MODE_PRIVATE);
+        android.widget.Switch background=new android.widget.Switch(this);
+        background.setText("Проверять обновления в фоне");background.setTextColor(WHITE);
+        background.setChecked(otaPrefs.getBoolean(MediaOtaSchedule.KEY_ENABLED,false));
+        background.setOnCheckedChangeListener((v,checked)->{
+            otaPrefs.edit().putBoolean(MediaOtaSchedule.KEY_ENABLED,checked).apply();
+            MediaOtaSchedule.configure(this);
+        });
+        otaPanel.addView(background,boxLp(-1,dp(49),9));
+        otaPanel.addView(txt("Интервал фоновых проверок",12,SECONDARY,true),boxLp(-1,-2,7));
+        long prefHours=otaPrefs.getLong(MediaOtaSchedule.KEY_HOURS,6L);
+        int selectedInterval=2;
+        for(int i=0;i<MediaOtaSchedule.HOURS.length;i++)if(MediaOtaSchedule.HOURS[i]==prefHours)selectedInterval=i;
+        Spinner intervals=spinner(MediaOtaSchedule.LABELS,selectedInterval);
+        intervals.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(AdapterView<?>parent,View view,int position,long id){
+                long hours=MediaOtaSchedule.HOURS[position];
+                if(otaPrefs.getLong(MediaOtaSchedule.KEY_HOURS,6L)!=hours) {
+                    otaPrefs.edit().putLong(MediaOtaSchedule.KEY_HOURS,hours).apply();
+                    MediaOtaSchedule.configure(MainActivity.this);
+                }
+            }
+            public void onNothingSelected(AdapterView<?>parent){}
+        });
+        otaPanel.addView(intervals,boxLp(-1,dp(46),8));
+        otaPanel.addView(txt("Проверка выполняется по расписанию Android. При наличии обновления появляется уведомление; установка только по вашему действию.",11,SECONDARY,false));
         LinearLayout system=settingsGroup(body,"Система и диагностика","FFmpeg · приватность · хранилище",android.R.drawable.ic_menu_info_details);
         system.addView(txt("Всё обрабатывается локально. Готовые файлы сохраняются в папку загрузок MediaLAB.",12,SECONDARY,false),boxLp(-1,-2,12));
         Button diagnostics=button("Диагностика FFmpeg",false);
@@ -447,7 +491,7 @@ public final class MainActivity extends Activity {
             Intent stop = new Intent(this, ConversionService.class).setAction(ConversionService.ACTION_CANCEL);
             startService(stop);
         }
-        ui.postDelayed(autoPreview, 850);
+        ui.postDelayed(autoPreview, 400);
     }
 
     private void startFastEstimate() {
@@ -457,7 +501,7 @@ public final class MainActivity extends Activity {
         final ConvertEngine.Config cfg = config();
         final String key = source.uri.toString();
         ConvertEngine.MediaInfo cached = fastInfoCache.get(key);
-        fastEstimatedBytes = ConvertEngine.quickEstimate(source, cfg, cached);
+        fastEstimatedBytes = ConvertEngine.totalQuickEstimate(queue, cfg, cached, source.uri);
         fastMetadataPending = cached == null && cfg.mode != ConvertEngine.IMAGE;
         renderPreviews();
         if (!fastMetadataPending) return;
@@ -467,7 +511,7 @@ public final class MainActivity extends Activity {
                 if (ticket != estimateTicket.get() || isFinishing() || isDestroyed()) return;
                 fastInfoCache.put(key, info);
                 fastMetadataPending = false;
-                fastEstimatedBytes = ConvertEngine.quickEstimate(source, cfg, info);
+                fastEstimatedBytes = ConvertEngine.totalQuickEstimate(queue, cfg, info, source.uri);
                 renderPreviews();
             });
         });
@@ -737,9 +781,9 @@ public final class MainActivity extends Activity {
         scroll.setFillViewport(true);
         root = vertical();
         root.setPadding(dp(16), dp(24), dp(16), dp(22));
-        if (android.os.Build.VERSION.SDK_INT >= 35) {
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
             scroll.setOnApplyWindowInsetsListener((view, insets) -> {
-                android.graphics.Insets system = insets.getInsets(android.view.WindowInsets.Type.systemBars());
+                android.graphics.Insets system = insets.getInsets(android.view.WindowInsets.Type.systemBars() | android.view.WindowInsets.Type.displayCutout());
                 root.setPadding(dp(16), dp(17) + system.top, dp(16), dp(22) + system.bottom);
                 return insets;
             });
@@ -821,48 +865,31 @@ public final class MainActivity extends Activity {
             }
             public void onNothingSelected(AdapterView<?> parent) { }
         });
-        if (mode == ConvertEngine.IMAGE || mode == ConvertEngine.VIDEO) {
-        settings.addView(txt("Предустановка качества", 12, SECONDARY, true), boxLp(-1, -2, 8));
-        HorizontalScrollView presetScroll = new HorizontalScrollView(this);
-        presetScroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout presetRow = horizontal();
-        final String[] presets = {"▾ Экономия", "◈ Баланс", "✦ Качество", "◆ Максимум"};
-        final int[] levels = {32, 64, 84, 96};
-        for (int i = 0; i < presets.length; i++) {
-            int q = levels[i];
-            Button preset = button(presets[i], false);
-            preset.setTextSize(12);
-            preset.setOnClickListener(v -> {
-                if ((busy && ConversionService.state.exporting) || qualitySeek == null) return;
-                qualitySeek.setProgress(q);
-                schedulePreview();
-                setStatus("Выбран пресет: " + presets[Arrays.binarySearch(levels, q)], false);
-            });
-            LinearLayout.LayoutParams lp = boxLp(-2, dp(41), 0);
-            lp.rightMargin = dp(7); presetRow.addView(preset, lp);
-        }
-        presetScroll.addView(presetRow); settings.addView(presetScroll, boxLp(-1, dp(43), 13));
-        settings.addView(txt("Ручная настройка качества", 12, SECONDARY, true), boxLp(-1, -2, 7));
-        LinearLayout qualityRow = horizontal();
-        qualityLabel = txt(savedQuality[mode] + "%", 20, WHITE, true);
-        qualityRow.addView(qualityLabel, new LinearLayout.LayoutParams(0, -2, 1));
-        qualityRow.addView(txt("Меньше размер  ⇄  Выше качество", 10, SECONDARY, false));
-        settings.addView(qualityRow, boxLp(-1, -2, 4));
-        qualitySeek = new SeekBar(this);
-        qualitySeek.setMax(100); qualitySeek.setProgress(savedQuality[mode]);
+        settings.addView(txt("Уровень качества и сжатия",12,SECONDARY,true),boxLp(-1,-2,8));
+        qualityLabel=txt(qualityName(stageIndex(savedQuality[mode])),18,WHITE,true);
+        settings.addView(qualityLabel,boxLp(-1,-2,8));
+        qualitySeek=new SeekBar(this);
+        qualitySeek.setMax(9);
+        qualitySeek.setProgress(stageIndex(savedQuality[mode]));
         qualitySeek.setProgressTintList(ColorStateList.valueOf(BLUE));
         qualitySeek.setThumbTintList(ColorStateList.valueOf(BLUE));
-        qualitySeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar seekBar, int p, boolean fromUser) {
-                qualityLabel.setText(Math.max(1, p) + "%");
-                savedQuality[mode] = Math.max(1, p);
-                // Keep scrubbing smooth: do not decode thumbnails or rebuild views here.
+        qualitySeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar bar,int p,boolean fromUser){
+                int index=Math.max(0,Math.min(9,p));
+                savedQuality[mode]=QUALITY_STAGES[index];
+                if(qualityLabel!=null)qualityLabel.setText(qualityName(index));
+                // Bitrate remains adjustable independently, but follows the quality profile until overridden.
+                savedBitrate[mode] = Math.min(3,(index*4)/10);
             }
-            public void onStartTrackingTouch(SeekBar b) { }
-            public void onStopTrackingTouch(SeekBar b) { schedulePreview(); }
+            public void onStartTrackingTouch(SeekBar bar){}
+            public void onStopTrackingTouch(SeekBar bar){
+                if(bitrateSpinner!=null && bitrateSpinner.getSelectedItemPosition()!=savedBitrate[mode])
+                    bitrateSpinner.setSelection(savedBitrate[mode]);
+                schedulePreview();
+            }
         });
-        settings.addView(qualitySeek, boxLp(-1, dp(45), 8));
-        } else { qualitySeek = null; qualityLabel = null; }
+        settings.addView(qualitySeek,boxLp(-1,dp(45),6));
+        settings.addView(txt("10 уровней · проценты обозначают параметр качества, не гарантированную экономию места",11,SECONDARY,false),boxLp(-1,-2,12));
         if (mode == ConvertEngine.VIDEO) {
             settings.addView(txt("Ограничение разрешения", 12, SECONDARY, true), boxLp(-1, -2, 6));
             resolutionSpinner = spinner(ConvertEngine.RESOLUTIONS, savedResolution[mode]);
@@ -870,23 +897,6 @@ public final class MainActivity extends Activity {
             resolutionSpinner.setOnItemSelectedListener(changeListener());
         }
         if (mode == ConvertEngine.AUDIO || mode == ConvertEngine.EXTRACT) {
-            settings.addView(txt("Быстрые аудиопресеты", 12, SECONDARY, true), boxLp(-1, -2, 8));
-            LinearLayout ratePresetRow = horizontal();
-            final String[] rateNames = {"◔ 96", "◑ 128", "◕ 192", "● 320"};
-            for (int i=0; i<rateNames.length; i++) {
-                final int index = i;
-                Button preset = button(rateNames[i], false);
-                preset.setTextSize(12);
-                preset.setOnClickListener(v -> {
-                    if ((busy && ConversionService.state.exporting) || bitrateSpinner == null) return;
-                    bitrateSpinner.setSelection(index);
-                    schedulePreview();
-                });
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(40), 1);
-                if (i>0) lp.leftMargin = dp(5);
-                ratePresetRow.addView(preset, lp);
-            }
-            settings.addView(ratePresetRow, boxLp(-1, dp(40), 14));
             settings.addView(txt("Битрейт для форматов с потерями, Кбит/с", 12, SECONDARY, true), boxLp(-1, -2, 6));
             bitrateSpinner = spinner(BITRATES, savedBitrate[mode]);
             settings.addView(bitrateSpinner, boxLp(-1, dp(52), 0));
@@ -894,7 +904,7 @@ public final class MainActivity extends Activity {
         }
 
         LinearLayout comparison = card(13);
-        header(comparison, "03  ◧  Предпросмотр", "Автоматически: начало · 25% · 50% · 75% · конец");
+        header(comparison, "03  ◧  Предпросмотр", "Сцены на 15% · 30% · 50% · 70% · 80%");
         originalBox = vertical(); resultBox = vertical();
         estimateBox = vertical();
         comparison.addView(estimateBox, boxLp(-1, -2, 12));
@@ -949,13 +959,13 @@ public final class MainActivity extends Activity {
         if (mode < 0 || mode >= 4) return;
         if (formatSpinner != null && formatSpinner.getSelectedItemPosition() >= 0)
             savedFormat[mode] = formatSpinner.getSelectedItemPosition();
-        if (qualitySeek != null) savedQuality[mode] = Math.max(1, qualitySeek.getProgress());
+        if (qualitySeek != null) savedQuality[mode] = QUALITY_STAGES[qualitySeek.getProgress()];
         if (resolutionSpinner != null && resolutionSpinner.getSelectedItemPosition() >= 0)
             savedResolution[mode] = resolutionSpinner.getSelectedItemPosition();
         if (bitrateSpinner != null && bitrateSpinner.getSelectedItemPosition() >= 0)
             savedBitrate[mode] = bitrateSpinner.getSelectedItemPosition();
         getPreferences(MODE_PRIVATE).edit()
-            .putInt("f"+mode, savedFormat[mode]).putInt("q"+mode, savedQuality[mode])
+            .putInt("f"+mode, savedFormat[mode]).putInt("q"+mode, savedQuality[mode]).putBoolean("format_v2",true)
             .putInt("r"+mode, savedResolution[mode]).putInt("b"+mode, savedBitrate[mode]).apply();
     }
     private AdapterView.OnItemSelectedListener changeListener() {
@@ -990,7 +1000,7 @@ public final class MainActivity extends Activity {
     }
     private ConvertEngine.Config config() {
         return new ConvertEngine.Config(mode, String.valueOf(formatSpinner.getSelectedItem()),
-                qualitySeek == null ? 78 : Math.max(1, qualitySeek.getProgress()), resolutionSpinner == null ? 0 : resolutionSpinner.getSelectedItemPosition(),
+                qualitySeek == null ? savedQuality[mode] : QUALITY_STAGES[qualitySeek.getProgress()], resolutionSpinner == null ? 0 : resolutionSpinner.getSelectedItemPosition(),
                 bitrateSpinner == null ? 2 : bitrateSpinner.getSelectedItemPosition(), performanceChoice);
     }
     private void openPicker() {
@@ -1100,7 +1110,7 @@ public final class MainActivity extends Activity {
         cacheSettings();
         boolean changed=mode!=targetMode;
         mode=targetMode;
-        queue.clear();queue.addAll(files);
+        queue.clear();queue.addAll(files);visibleFiles=24;
         selected=0;exported.clear();clearPreview();clearStaged();
         for (ConvertEngine.Source source:files) {
             try {getContentResolver().takePersistableUriPermission(source.uri,
@@ -1121,7 +1131,7 @@ public final class MainActivity extends Activity {
             filesContainer.addView(txt("Файлы ещё не выбраны", 12, SECONDARY, false));
             return;
         }
-        for (int i = 0; i < queue.size(); i++) {
+        for (int i = 0; i < Math.min(queue.size(),Math.max(visibleFiles,selected+1)); i++) {
             ConvertEngine.Source source = queue.get(i);
             int idx = i;
             LinearLayout line = horizontal();
@@ -1140,6 +1150,11 @@ public final class MainActivity extends Activity {
                 renderFiles(); renderPreviews(); updateButtons();
                 schedulePreview();
             });
+        }
+        if(queue.size()>visibleFiles){
+            Button more=button("Показать ещё · "+(queue.size()-Math.min(queue.size(),visibleFiles))+" файлов",false);
+            more.setOnClickListener(v->{visibleFiles+=24;renderFiles();});
+            filesContainer.addView(more,boxLp(-1,dp(42),9));
         }
     }
     private void clearPreview() {
@@ -1160,8 +1175,8 @@ public final class MainActivity extends Activity {
             estimateBox.addView(txt("Выберите файлы: формат определится автоматически", 12, SECONDARY, false));
             return;
         }
-        long original=queue.get(Math.min(selected,queue.size()-1)).size;
-        estimateBox.addView(txt("Исходный объём  ·  "+ConvertEngine.humanBytes(original),12,SECONDARY,true),boxLp(-1,-2,9));
+        long original=ConvertEngine.totalSourceBytes(queue);
+        estimateBox.addView(txt("Исходный объём  ·  "+ConvertEngine.humanBytes(original)+"  ·  "+queue.size()+" файл(ов)",12,SECONDARY,true),boxLp(-1,-2,9));
         long sampleSize=0;
         for (File item:previewParts) if(item.isFile())sampleSize+=item.length();
         if (ffmpegChecked && !ffmpegReady) {
@@ -1170,6 +1185,7 @@ public final class MainActivity extends Activity {
             return;
         }
         if (!ConversionService.state.running && ConversionService.state.error &&
+                !queue.isEmpty() && queue.get(selected).uri.toString().equals(ConversionService.state.sourceKey) &&
                 previewParts.isEmpty() && !pendingAutoPreview) {
             estimateBox.addView(txt("Не удалось подготовить образец",13,0xffff9199,true),boxLp(-1,-2,6));
             estimateBox.addView(txt(ConversionService.state.status,11,SECONDARY,false),boxLp(-1,-2,7));
@@ -1181,7 +1197,9 @@ public final class MainActivity extends Activity {
             long bytes;
             String tag;
             if (mode==ConvertEngine.IMAGE) {
-                bytes=sampleSize;tag="Точный размер результата";
+                if(queue.size()==1) {bytes=sampleSize;tag="Точный размер результата";}
+                else {bytes=fastEstimatedBytes;tag="Прогноз на всю очередь · пример одной картинки";}
+            } else if(queue.size()>1) {bytes=fastEstimatedBytes;tag="Оценка всей очереди";
             } else if (previewDurationMs>0 && previewSampledMs>0) {
                 bytes=(long)(sampleSize*Math.max(1.0,previewDurationMs/(double)previewSampledMs));
                 tag="Оценка по "+previewParts.size()+" сценам";
@@ -1311,7 +1329,7 @@ public final class MainActivity extends Activity {
         player.setOnPreparedListener(mp -> {
             if (player != activeVideo) return;
             long duration = Math.max(0, mp.getDuration());
-            final List<Long> positions = ConvertEngine.previewStarts(duration, 2500);
+            final List<Long> positions = ConvertEngine.previewStarts(duration, 1200);
             final int[] next = {0};
             final Runnable[] advance = new Runnable[1];
             advance[0] = () -> {
@@ -1372,7 +1390,7 @@ public final class MainActivity extends Activity {
                 player.setOnPreparedListener(mp -> {
                     if (mp != audioPlayer) return;
                     long duration = Math.max(0, mp.getDuration());
-                    List<Long> positions = ConvertEngine.previewStarts(duration, 2500);
+                    List<Long> positions = ConvertEngine.previewStarts(duration, 1500);
                     final int[] next = {0};
                     final Runnable[] advance = new Runnable[1];
                     advance[0] = () -> {

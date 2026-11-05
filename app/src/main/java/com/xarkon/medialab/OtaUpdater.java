@@ -16,6 +16,7 @@ import android.widget.LinearLayout;
 import android.view.Gravity;
 import android.graphics.Color;
 import org.json.JSONObject;
+import org.json.JSONArray;
 import java.io.*;
 import java.net.*;
 import java.security.MessageDigest;
@@ -35,18 +36,40 @@ public final class OtaUpdater {
 
     private static class Release {
         final String name,sha,url,notes;
+        final JSONArray history;
         final long code,size;
         Release(JSONObject j) throws Exception {
             if(j.optInt("schema",1)!=1)throw new IOException("Версия манифеста OTA не поддерживается");
             if(!"com.xarkon.medialab".equals(j.getString("packageName"))) throw new IOException("Неверный пакет приложения");
             code=j.getLong("versionCode");name=j.getString("versionName");size=j.getLong("sizeBytes");
             url=j.getString("apkUrl");sha=j.getString("sha256").toLowerCase(Locale.US);notes=j.optString("notes","");
+            history=j.optJSONArray("history");
             if(code<1 || size<100000 || size>MAX_SIZE || !sha.matches("[0-9a-f]{64}") ||
                !name.matches("[A-Za-z0-9._-]{1,40}") || notes.length()>6000 ||
                !url.equals(REPO_PREFIX+"v"+name+"/MediaLAB.apk"))
                 throw new IOException("Манифест OTA повреждён или источник неофициальный");
         }
     }
+    private static String changelog(Release release,long installed) {
+        if(release.history==null || release.history.length()==0)return release.notes;
+        StringBuilder all=new StringBuilder();
+        long previous=installed;
+        try {
+            for(int i=0;i<release.history.length();i++) {
+                JSONObject e=release.history.getJSONObject(i);
+                long code=e.getLong("versionCode");
+                if(code<=installed)continue;
+                if(code!=previous+1 || code>release.code)return release.notes;
+                String title=e.getString("versionName"),body=e.getString("notes");
+                if(body.isEmpty()||body.length()>6000)return release.notes;
+                if(all.length()>0)all.append("\n\n");
+                all.append("Версия ").append(title).append("\n").append(body);
+                previous=code;
+            }
+        }catch(Exception error){return release.notes;}
+        return previous==release.code ? all.toString() : release.notes;
+    }
+
     private static URLConnection connection(String url) throws IOException {
         URL u=new URL(url);
         if(!"https".equalsIgnoreCase(u.getProtocol()))throw new IOException("Допускается только HTTPS");
@@ -96,15 +119,21 @@ public final class OtaUpdater {
                     while((n=in.read(buf))!=-1){if(out.size()+n>65536)throw new IOException("Слишком большой манифест");out.write(buf,0,n);}
                 }
                 Release rel=new Release(new JSONObject(out.toString("UTF-8")));
-                int current=activity.getPackageManager().getPackageInfo(activity.getPackageName(),0).versionCode;
+                long current=activity.getPackageManager().getPackageInfo(activity.getPackageName(),0).versionCode;
                 main.post(()->{
                     waiting.dismiss();if(activity.isFinishing()||activity.isDestroyed())return;
                     if(rel.code<=current){new AlertDialog.Builder(activity).setTitle("Обновлений нет")
                         .setMessage("Установлена актуальная версия · "+BuildConfig.VERSION_NAME)
                         .setPositiveButton("Готово",null).show();return;}
-                    new AlertDialog.Builder(activity).setTitle("Доступна MediaLAB "+rel.name)
-                        .setMessage("Размер: "+String.format(Locale.US,"%.1f МБ",rel.size/1048576.0)+
-                            (rel.notes.isEmpty()?"":"\n\n"+rel.notes))
+                    android.widget.ScrollView scroll=new android.widget.ScrollView(activity);
+                    TextView notes=new TextView(activity);
+                    notes.setText("Размер: "+String.format(Locale.US,"%.1f МБ",rel.size/1048576.0)+"\n\n"+
+                            changelog(rel,current));
+                    notes.setTextSize(14);notes.setTextColor(activity.getPreferences(0).getInt("theme",0)==2 ? 0xff18293e : 0xffd7e5ff);
+                    notes.setPadding(32,24,32,24);notes.setLineSpacing(6,1.12f);
+                    scroll.addView(notes);scroll.setBackgroundColor(activity.getPreferences(0).getInt("theme",0)==2 ? 0xfff5f7fc : 0xff101927);
+                    new AlertDialog.Builder(activity).setTitle("Обновление MediaLAB "+rel.name)
+                        .setView(scroll)
                         .setNegativeButton("Позже",null)
                         .setPositiveButton("Скачать и установить",(d,w)->download(activity,rel,accent)).show();
                 });

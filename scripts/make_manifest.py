@@ -20,8 +20,24 @@ notes_path=ROOT/'release_notes'/('v'+version+'.txt')
 if not notes_path.is_file():raise SystemExit('Release notes missing: '+str(notes_path))
 notes=notes_path.read_text(encoding='utf-8').strip()
 if not notes or len(notes)>6000:raise SystemExit('Release notes invalid')
+# Publish a complete cumulative changelog, ordered by versionCode.
+index=json.loads((ROOT/'release_notes/version_codes.json').read_text(encoding='utf-8'))
+history=[]
+for row in index:
+    ver=row['versionName'];num=int(row['versionCode'])
+    source=ROOT/'release_notes'/('v'+ver+'.txt')
+    if not source.is_file():raise SystemExit('Missing historical release notes: '+str(source))
+    message=source.read_text(encoding='utf-8').strip()
+    if not message or len(message)>6000:raise SystemExit('Bad historical release notes '+ver)
+    history.append({'versionCode':num,'versionName':ver,'notes':message})
+if not history or history[-1]['versionCode']!=int(code) or history[-1]['versionName']!=version:
+    raise SystemExit('Latest release missing from historical index')
+for before,after in zip(history,history[1:]):
+    if after['versionCode']!=before['versionCode']+1:
+        raise SystemExit('Non-contiguous OTA version codes in history')
 metadata={
  'schema':1, 'packageName':package, 'versionCode':int(code), 'versionName':version,
+ 'history':history,
  'apkUrl':'https://github.com/INFEND/MEDIALAB/releases/download/v'+version+'/MediaLAB.apk',
  'sha256':hashlib.sha256(apk.read_bytes()).hexdigest(), 'sizeBytes':apk.stat().st_size,
  'publishedAt':datetime.now(timezone.utc).isoformat(timespec='seconds'), 'notes':notes,

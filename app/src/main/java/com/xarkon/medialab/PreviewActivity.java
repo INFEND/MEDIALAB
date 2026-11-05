@@ -65,9 +65,12 @@ public final class PreviewActivity extends Activity {
         status=new TextView(this);status.setTextSize(12);status.setTextColor(0xffb6c4dc);
         status.setGravity(Gravity.CENTER);status.setText("Синхронное сравнение • 50 / 50");
         head.addView(status,new LinearLayout.LayoutParams(0,-1,1));
-        page.addView(head,new LinearLayout.LayoutParams(-1,dp(65)));
+        // Top controls overlay the full-height preview, so the picture is never shrunk vertically.
+        head.setBackgroundColor(0xBB070C16);
         stage=new FrameLayout(this);stage.setBackgroundColor(Color.BLACK);
         page.addView(stage,new LinearLayout.LayoutParams(-1,0,1));
+        FrameLayout.LayoutParams topControls=new FrameLayout.LayoutParams(-1,dp(56),Gravity.TOP);
+        stage.addView(head,topControls);
         LinearLayout foot=new LinearLayout(this);foot.setGravity(Gravity.CENTER);
         foot.setPadding(dp(16),dp(10),dp(16),dp(18));
         toggle=button("Пауза",true); toggle.setOnClickListener(v->togglePlayback());
@@ -75,7 +78,9 @@ public final class PreviewActivity extends Activity {
         Button restart=button("Сначала",false);
         LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(0,dp(50),1);rp.leftMargin=dp(10);
         foot.addView(restart,rp);restart.setOnClickListener(v->{pausedByUser=false;playPart(0);});
-        page.addView(foot);
+        foot.setBackgroundColor(0xBB070C16);
+        FrameLayout.LayoutParams controls=new FrameLayout.LayoutParams(-1,dp(72),Gravity.BOTTOM);
+        stage.addView(foot,controls);
         if(mode==ConvertEngine.IMAGE) {
             toggle.setVisibility(View.GONE);restart.setVisibility(View.GONE);
             showImageCompare();
@@ -97,6 +102,7 @@ public final class PreviewActivity extends Activity {
             stage.addView(info,new FrameLayout.LayoutParams(-1,-1));
             playPart(0);
         }
+        head.bringToFront();foot.bringToFront();
     }
     private void orientToSource() {
         if (source == null) return;
@@ -188,7 +194,11 @@ public final class PreviewActivity extends Activity {
         status.setText("Перемещайте разделитель по изображению");
         io.execute(()->{
             Bitmap left=decode(source),right=decode(Uri.fromFile(new File(parts.get(0))));
-            runOnUiThread(()->{if(!closed&&imageView!=null)imageView.setImages(left,right);});
+            runOnUiThread(()->{
+                if(closed||imageView==null)return;
+                if(left==null || right==null)status.setText("Изображение не открылось. Проверьте кодек и исходный файл.");
+                imageView.setImages(left,right);
+            });
         });
     }
     private Bitmap decode(Uri uri) {

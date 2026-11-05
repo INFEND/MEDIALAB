@@ -213,6 +213,7 @@ public final class ConversionService extends Service {
             }
             for (int n = 0; n < files.size() && !cancellation.get(); n++) {
                 ConvertEngine.Source src = files.get(n);
+                ConvertEngine.Config itemCfg = ConvertEngine.forSource(cfg, src);
                 state.fileNumber = n + 1;
                 state.fileProgress = 0;
                 File input = null;
@@ -241,21 +242,24 @@ public final class ConversionService extends Service {
                     if (cancellation.get()) break;
                     ConvertEngine.MediaInfo info = ConvertEngine.info(input);
                     durationMs = info.durationMs;
-                    if (exporting || cfg.mode == ConvertEngine.IMAGE) {
+                    if (exporting || itemCfg.mode == ConvertEngine.IMAGE) {
                         segmentsCount = files.size(); segmentIndex = n;
                         activeClipMs = info.durationMs;
-                        File output = ConvertEngine.outputTemp(this, cfg.format);
+                        File output = ConvertEngine.outputTemp(this, itemCfg.format);
                         try {
                             markFile("Конвертация " + (n+1) + "/" + files.size() + ": " + src.name, 8);
-                            FFmpegSession session = ConvertEngine.convert(input, output, cfg, info, 0, 0);
-                            validate(session, output);
+                            boolean nativeImage = ConvertEngine.convertNativeImage(input, output, itemCfg, cancellation::get);
+                            if(!nativeImage) {
+                                FFmpegSession session = ConvertEngine.convert(input, output, itemCfg, info, 0, 0);
+                                validate(session, output);
+                            }
                             if (cancellation.get()) break;
                             if (exporting) {
                                 Uri dst = ConvertEngine.save(this, output,
-                                        ConvertEngine.fileName(src.name, cfg.format, n),
-                                        ConvertEngine.mime(cfg.mode, cfg.format), cancellation::get);
+                                        ConvertEngine.fileName(src.name, itemCfg.format, n),
+                                        ConvertEngine.mime(itemCfg.mode, itemCfg.format), cancellation::get);
                                 state.results.add(dst);
-                                state.lastMime = ConvertEngine.mime(cfg.mode, cfg.format);
+                                state.lastMime = ConvertEngine.mime(itemCfg.mode, itemCfg.format);
                                 saved++;
                                 markFile("Сохранён: " + src.name, 100);
                             } else {
@@ -265,7 +269,7 @@ public final class ConversionService extends Service {
                             }
                         } finally { if (output != null) output.delete(); }
                     } else {
-                        final long clipMs = cfg.mode == ConvertEngine.VIDEO ? 2500 : 2500;
+                        final long clipMs = itemCfg.mode == ConvertEngine.VIDEO ? 1200 : 1500;
                         List<Long> positions = ConvertEngine.previewStarts(info.durationMs, clipMs);
                         segmentsCount = positions.size();
                         state.earlySampleTotal=positions.size();
@@ -277,9 +281,9 @@ public final class ConversionService extends Service {
                             activeClipMs = length;
                             markFile("Предпросмотр: участок " + (p+1) + "/" + positions.size(),
                                     8 + 83 * p / Math.max(1, positions.size()));
-                            File output = ConvertEngine.outputTemp(this, cfg.format);
+                            File output = ConvertEngine.outputTemp(this, itemCfg.format);
                             try {
-                                FFmpegSession session = ConvertEngine.convert(input, output, cfg, info, start, length);
+                                FFmpegSession session = ConvertEngine.convert(input, output, itemCfg, info, start, length);
                                 validate(session, output);
                                 if (cancellation.get()) break;
                                 sampledMs += length;
@@ -294,7 +298,7 @@ public final class ConversionService extends Service {
                                 // A second preview-only stream is paired with the ORIGINAL
                                 // at exactly this timestamp. The existing converted clip
                                 // remains the source for the size estimate.
-                                if (cfg.mode == ConvertEngine.VIDEO) {
+                                if (itemCfg.mode == ConvertEngine.VIDEO) {
                                     File paired = ConvertEngine.outputTemp(this, "mp4");
                                     try {
                                         markFile("Синхронизация: участок " + (p+1) + "/" + positions.size(),
