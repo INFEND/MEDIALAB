@@ -22,6 +22,7 @@ public final class OtaRingView extends View {
     }
     /** QR LINK-style continuous rotation during network checks, stopped on results. */
     public void setChecking(boolean checking){
+        if(this.checking==checking && (idleAnimation!=null || !checking))return;
         if(idleAnimation!=null){idleAnimation.cancel();idleAnimation=null;}
         this.checking=checking;
         rotation=0f;
@@ -37,7 +38,7 @@ public final class OtaRingView extends View {
     }
     @Override protected void onAttachedToWindow(){
         super.onAttachedToWindow();
-        if(checking)setChecking(true);
+        if(checking){checking=false;setChecking(true);}
         else invalidate();
     }
     @Override protected void onDetachedFromWindow(){
