@@ -85,6 +85,44 @@ public final class OtaUpdater {
         return all.toString();
     }
 
+    /** Render release notes with distinct change markers and explicit **bold** phrases. */
+    private static android.text.SpannableStringBuilder styledNotes(String source) {
+        android.text.SpannableStringBuilder result=new android.text.SpannableStringBuilder();
+        if(source==null)return result;
+        for(String line:source.split("\\n",-1)){
+            if(result.length()>0)result.append("\n");
+            StringBuilder visible=new StringBuilder();
+            java.util.ArrayList<int[]> bold=new java.util.ArrayList<>();
+            int start=-1;
+            for(int i=0;i<line.length();){
+                if(i+1<line.length() && line.charAt(i)=='*' && line.charAt(i+1)=='*'){
+                    if(start<0)start=visible.length();
+                    else {if(visible.length()>start)bold.add(new int[]{start,visible.length()});start=-1;}
+                    i+=2;
+                }else visible.append(line.charAt(i++));
+            }
+            // Unclosed markup is rendered literally rather than silently dropping text.
+            if(start>=0)visible.insert(start,"**");
+            String shown=visible.toString();
+            int offset=result.length();
+            result.append(shown);
+            int tint=shown.startsWith("[+]")?0xff4dd69c:
+                shown.startsWith("[-]")?0xfff07878:
+                shown.startsWith("[=]")?0xffffaa4d:0;
+            if(tint!=0){
+                result.setSpan(new android.text.style.ForegroundColorSpan(tint),offset,offset+3,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                result.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                    offset,offset+3,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            for(int[] range:bold)if(range[1]<=shown.length()){
+                result.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                    offset+range[0],offset+range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+        }
+        return result;
+    }
+
     private static URLConnection connection(String url) throws IOException {
         URL u=new URL(url);
         if(!"https".equalsIgnoreCase(u.getProtocol()))throw new IOException("Допускается только HTTPS");
@@ -142,8 +180,8 @@ public final class OtaUpdater {
                         .setPositiveButton("Готово",null).show();return;}
                     android.widget.ScrollView scroll=new android.widget.ScrollView(activity);
                     TextView notes=new TextView(activity);
-                    notes.setText("Размер: "+String.format(Locale.US,"%.1f МБ",rel.size/1048576.0)+"\n\n"+
-                            changelog(rel,current));
+                    notes.setText(styledNotes("Размер: "+String.format(Locale.US,"%.1f МБ",rel.size/1048576.0)+"\n\n"+
+                            changelog(rel,current)));
                     notes.setTextSize(14);notes.setTextColor(activity.getPreferences(0).getInt("theme",0)==2 ? 0xff18293e : 0xffd7e5ff);
                     notes.setPadding(32,24,32,24);notes.setLineSpacing(6,1.12f);
                     scroll.addView(notes);scroll.setBackgroundColor(activity.getPreferences(0).getInt("theme",0)==2 ? 0xfff5f7fc : 0xff101927);
