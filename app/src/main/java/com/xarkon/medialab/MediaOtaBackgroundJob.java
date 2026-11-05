@@ -12,7 +12,7 @@ import android.os.Build;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.net.HttpsURLConnection;
+import javax.net.ssl.HttpsURLConnection;
 import java.net.URL;
 
 /** Safe background check: notification only, never silent APK installation. */
