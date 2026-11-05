@@ -69,8 +69,8 @@ public final class OtaUpdater {
                 previousCode=code;
                 if(code<=installed)continue;
                 if(code!=lastShown+1)return release.notes;
-                if(all.length()>0)all.append("\\n\\n");
-                all.append("Версия ").append(title).append("\\n").append(body);
+                if(all.length()>0)all.append("\n\n");
+                all.append("Версия ").append(title).append("\n").append(body);
                 lastShown=code;
             }
         }catch(Exception error){return release.notes;}
