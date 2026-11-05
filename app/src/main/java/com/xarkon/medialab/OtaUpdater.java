@@ -200,9 +200,9 @@ public final class OtaUpdater {
             .setPositiveButton("Понятно",null),0xff4dd69c);
     });}
     public static void checkAndOffer(Activity activity,int accent){
-        final AlertDialog waiting=new AlertDialog.Builder(activity).setTitle("MediaLAB · OTA")
-            .setMessage("Проверяем официальный канал обновлений…")
-            .setCancelable(false).create();waiting.show();
+        final AlertDialog waiting=present(activity,new AlertDialog.Builder(activity).setTitle("Проверка обновлений")
+            .setMessage("Подключение к серверу…")
+            .setCancelable(false),accent);
         worker.execute(()->{
             try {
                 URLConnection c=connection(MANIFEST);ByteArrayOutputStream out=new ByteArrayOutputStream();
@@ -238,8 +238,12 @@ public final class OtaUpdater {
         ProgressBar progress=new ProgressBar(a,null,android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);progress.setProgressTintList(android.content.res.ColorStateList.valueOf(color));
         layout.addView(status);layout.addView(progress);
-        AlertDialog dialog=new AlertDialog.Builder(a).setTitle("Загрузка обновления")
-            .setView(layout).setCancelable(false).create();dialog.show();
+        boolean light=a.getPreferences(0).getInt("theme",0)==2;
+        status.setTextColor(light?0xff18293e:0xffe9f1ff);
+        status.setPadding(0,0,0,(int)(14*a.getResources().getDisplayMetrics().density));
+        progress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(light?0xffdce4ed:0xff304252));
+        AlertDialog dialog=present(a,new AlertDialog.Builder(a).setTitle("Загрузка обновления")
+            .setView(layout).setCancelable(false),color);
         worker.execute(()->{
             File target=file(a),temp=new File(target.getParentFile(),"MediaLAB-candidate.apk");
             try {
