@@ -78,6 +78,10 @@ public final class MediaOtaDialog {
   LinearLayout.LayoutParams blp=new LinearLayout.LayoutParams(-2,-2);blp.leftMargin=dp(9);
   actions.addView(primary,blp);primary.setVisibility(View.GONE);
   dialog.setContentView(root);
+  dialog.setOnDismissListener(ignored->{
+   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
+   ring.setChecking(false);
+  });
  }
  public void show(){
   dialog.show();Window w=dialog.getWindow();if(w==null)return;
@@ -97,6 +101,8 @@ public final class MediaOtaDialog {
  }
  public void offer(String version,String changes,Runnable action){
   title.setText("Доступно обновление");detail.setText("MediaLAB "+version);
+  if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
+  displayedProgress=0;
   spinner.setVisibility(View.GONE);ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
   notes.setText(changes==null?"":changes);history.setVisibility(changes==null||changes.isEmpty()?View.GONE:View.VISIBLE);
   primary.setText("ОБНОВИТЬ");primary.setVisibility(View.VISIBLE);
@@ -129,12 +135,16 @@ public final class MediaOtaDialog {
  }
  public void current(String version){
   title.setText("Установлена актуальная версия");detail.setText(version);
-  spinner.setVisibility(View.GONE);progress.setIndeterminate(false);progress.setProgress(1000);
+  if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
+  displayedProgress=1000;
+  spinner.setVisibility(View.GONE);ring.setChecking(false);
+  progress.setIndeterminate(false);progress.setProgress(1000);ring.setProgressFraction(1f);
   primary.setVisibility(View.GONE);history.setVisibility(View.GONE);
   bytes.setText("");percent.setText("");
  }
  public void fail(String message,Runnable retry){
   title.setText("Ошибка обновления");detail.setText(message);
+  displayedProgress=0;
   spinner.setVisibility(View.GONE);ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
   if(numberAnimation!=null)numberAnimation.cancel();ring.setProgressFraction(0f);
   history.setVisibility(View.GONE);bytes.setText("");percent.setText("");
