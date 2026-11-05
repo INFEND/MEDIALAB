@@ -10,6 +10,8 @@ public final class OtaRingView extends View {
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final int accent;
     private float progress=0f;
+    private float rotation=0f;
+    private android.animation.ValueAnimator idleAnimation;
     public OtaRingView(Context context,int color){
         super(context);accent=color;
         setContentDescription("Индикатор загрузки обновления");
@@ -28,6 +30,6 @@ public final class OtaRingView extends View {
         paint.setColor((accent&0x00ffffff)|0x33000000);
         canvas.drawCircle(cx,cy,radius,paint);
         paint.setColor(accent);
-        canvas.drawArc(cx-radius,cy-radius,cx+radius,cy+radius,-90,360f*progress,false,paint);
+        canvas.drawArc(cx-radius,cy-radius,cx+radius,cy+radius,-90+rotation,360f*progress,false,paint);
     }
 }
