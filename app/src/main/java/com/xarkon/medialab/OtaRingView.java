@@ -12,6 +12,7 @@ public final class OtaRingView extends View {
     private float progress=0f;
     private float rotation=0f;
     private boolean checking=false;
+    private boolean resumeOnAttach=false;
     private android.animation.ValueAnimator idleAnimation;
     public OtaRingView(Context context,int color){
         super(context);accent=color;
@@ -38,10 +39,11 @@ public final class OtaRingView extends View {
     }
     @Override protected void onAttachedToWindow(){
         super.onAttachedToWindow();
-        if(checking){checking=false;setChecking(true);}
+        if(resumeOnAttach){resumeOnAttach=false;setChecking(true);}
         else invalidate();
     }
     @Override protected void onDetachedFromWindow(){
+        resumeOnAttach=checking;
         setChecking(false);
         super.onDetachedFromWindow();
     }
