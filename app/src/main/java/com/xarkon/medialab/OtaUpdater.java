@@ -50,24 +50,39 @@ public final class OtaUpdater {
                 throw new IOException("Манифест OTA повреждён или источник неофициальный");
         }
     }
+    /** Render a complete, ordered OTA history; never label a partial list as complete. */
     private static String changelog(Release release,long installed) {
         if(release.history==null || release.history.length()==0)return release.notes;
         StringBuilder all=new StringBuilder();
-        long previous=installed;
+        long previousCode=-1;
+        long lastShown=installed;
+        java.util.HashSet<String> names=new java.util.HashSet<>();
         try {
             for(int i=0;i<release.history.length();i++) {
                 JSONObject e=release.history.getJSONObject(i);
                 long code=e.getLong("versionCode");
-                if(code<=installed)continue;
-                if(code!=previous+1 || code>release.code)return release.notes;
                 String title=e.getString("versionName"),body=e.getString("notes");
-                if(body.isEmpty()||body.length()>6000)return release.notes;
-                if(all.length()>0)all.append("\n\n");
-                all.append("Версия ").append(title).append("\n").append(body);
-                previous=code;
+                if(code<=0 || code>release.code || code<=previousCode ||
+                   (previousCode>0 && code!=previousCode+1) ||
+                   !title.matches("[A-Za-z0-9._-]{1,40}") || !names.add(title) ||
+                   body.trim().isEmpty() || body.length()>6000)return release.notes;
+                previousCode=code;
+                if(code<=installed)continue;
+                if(code!=lastShown+1)return release.notes;
+                if(all.length()>0)all.append("\\n\\n");
+                all.append("Версия ").append(title).append("\\n").append(body);
+                lastShown=code;
             }
         }catch(Exception error){return release.notes;}
-        return previous==release.code ? all.toString() : release.notes;
+        // Latest entry must exactly match the signed release metadata.
+        if(previousCode!=release.code || lastShown!=release.code ||
+           !names.contains(release.name))return release.notes;
+        try {
+            JSONObject latest=release.history.getJSONObject(release.history.length()-1);
+            if(!release.name.equals(latest.getString("versionName")) ||
+               !release.notes.equals(latest.getString("notes")))return release.notes;
+        }catch(Exception error){return release.notes;}
+        return all.toString();
     }
 
     private static URLConnection connection(String url) throws IOException {
