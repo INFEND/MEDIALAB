@@ -26,7 +26,7 @@ public final class OtaRingView extends View {
         if(this.checking==checking && (idleAnimation!=null || !checking))return;
         if(idleAnimation!=null){idleAnimation.cancel();idleAnimation=null;}
         this.checking=checking;
-        rotation=0f;
+        if(!checking)rotation=0f;
         if(checking && android.animation.ValueAnimator.areAnimatorsEnabled()){
             idleAnimation=android.animation.ValueAnimator.ofFloat(0f,360f);
             idleAnimation.setDuration(1100);
