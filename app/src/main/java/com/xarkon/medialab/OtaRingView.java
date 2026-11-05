@@ -33,6 +33,10 @@ public final class OtaRingView extends View {
         }
         invalidate();
     }
+    @Override protected void onAttachedToWindow(){
+        super.onAttachedToWindow();
+        invalidate();
+    }
     @Override protected void onDetachedFromWindow(){
         setChecking(false);
         super.onDetachedFromWindow();
