@@ -11,6 +11,7 @@ public final class OtaRingView extends View {
     private final int accent;
     private float progress=0f;
     private float rotation=0f;
+    private boolean checking=false;
     private android.animation.ValueAnimator idleAnimation;
     public OtaRingView(Context context,int color){
         super(context);accent=color;
@@ -22,6 +23,7 @@ public final class OtaRingView extends View {
     /** QR LINK-style continuous rotation during network checks, stopped on results. */
     public void setChecking(boolean checking){
         if(idleAnimation!=null){idleAnimation.cancel();idleAnimation=null;}
+        this.checking=checking;
         rotation=0f;
         if(checking && android.animation.ValueAnimator.areAnimatorsEnabled()){
             idleAnimation=android.animation.ValueAnimator.ofFloat(0f,360f);
@@ -35,7 +37,8 @@ public final class OtaRingView extends View {
     }
     @Override protected void onAttachedToWindow(){
         super.onAttachedToWindow();
-        invalidate();
+        if(checking)setChecking(true);
+        else invalidate();
     }
     @Override protected void onDetachedFromWindow(){
         setChecking(false);
@@ -52,6 +55,6 @@ public final class OtaRingView extends View {
         paint.setColor((accent&0x00ffffff)|0x33000000);
         canvas.drawCircle(cx,cy,radius,paint);
         paint.setColor(accent);
-        canvas.drawArc(cx-radius,cy-radius,cx+radius,cy+radius,-90+rotation,progress>0f?360f*progress:rotation!=0f?88f:0f,false,paint);
+        canvas.drawArc(cx-radius,cy-radius,cx+radius,cy+radius,-90+rotation,checking?88f:360f*progress,false,paint);
     }
 }
