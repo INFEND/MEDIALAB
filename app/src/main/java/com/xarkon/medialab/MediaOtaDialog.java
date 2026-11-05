@@ -115,6 +115,6 @@ public final class MediaOtaDialog {
   title.setText("Ошибка обновления");detail.setText(message);
   spinner.setVisibility(View.GONE);progress.setIndeterminate(false);progress.setProgress(0);
   primary.setText("ПОВТОРИТЬ");primary.setVisibility(View.VISIBLE);
-  primary.setOnClickListener(v->retry.run());
+  primary.setOnClickListener(v->{if(retry!=null)retry.run();});
  }
 }
