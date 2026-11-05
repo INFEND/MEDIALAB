@@ -128,8 +128,9 @@ public final class MediaOtaDialog {
  }
  public void ready(String version,Runnable install){
   title.setText("Обновление загружено");detail.setText("MediaLAB "+version+" · APK проверен");
+  if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   spinner.setVisibility(View.GONE);ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(1000);ring.setProgressFraction(1f);
-  if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}displayedProgress=1000;
+  displayedProgress=1000;
   percent.setText("100%");bytes.setText("");history.setVisibility(View.GONE);
   primary.setText("УСТАНОВИТЬ");primary.setVisibility(View.VISIBLE);
   primary.setOnClickListener(v->install.run());
