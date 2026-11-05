@@ -157,148 +157,101 @@ public final class OtaUpdater {
                 MessageDigest.getInstance("SHA-256").digest(future)))
             throw new IOException("Сертификат APK отличается от установленной версии. Для OTA нужна та же постоянная подпись.");
     }
-    /** Consistent AMOLED/light OTA dialogs, including their system button and window chrome. */
-    private static AlertDialog present(Activity a,AlertDialog.Builder builder,int accent) {
-        AlertDialog dialog=builder.create();
-        dialog.setOnShowListener(ignored->{
-            boolean light=a.getPreferences(0).getInt("theme",0)==2;
-            int surface=light?0xfff5f7fc:0xff101927;
-            int foreground=light?0xff18293e:0xffe9f1ff;
-            android.graphics.drawable.GradientDrawable background=new android.graphics.drawable.GradientDrawable();
-            background.setColor(surface);
-            background.setCornerRadius(a.getResources().getDisplayMetrics().density*22f);
-            background.setStroke((int)(a.getResources().getDisplayMetrics().density),light?0xffdce4ed:0xff304252);
-            if(dialog.getWindow()!=null){
-                dialog.getWindow().setBackgroundDrawable(background);
-                dialog.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-                android.view.WindowManager.LayoutParams lp=dialog.getWindow().getAttributes();
-                lp.dimAmount=.65f;
-                lp.width=Math.min(a.getResources().getDisplayMetrics().widthPixels-
-                    (int)(32*a.getResources().getDisplayMetrics().density),
-                    (int)(460*a.getResources().getDisplayMetrics().density));
-                dialog.getWindow().setAttributes(lp);
-            }
-            int[] buttons={AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL};
-            for(int which:buttons){
-                android.widget.Button button=dialog.getButton(which);
-                if(button!=null){button.setTextColor(which==AlertDialog.BUTTON_POSITIVE?accent:foreground);
-                    button.setAllCaps(false);}
-            }
-            int titleId=a.getResources().getIdentifier("alertTitle","id","android");
-            if(titleId!=0){android.view.View title=dialog.findViewById(titleId);
-                if(title instanceof TextView)((TextView)title).setTextColor(foreground);}
-            int messageId=android.R.id.message;
-            android.view.View message=dialog.findViewById(messageId);
-            if(message instanceof TextView)((TextView)message).setTextColor(foreground);
-        });
-        dialog.show();
-        return dialog;
-    }
-    private static void show(Activity a,String title,String message) {main.post(()->{
+    public static void checkAndOffer(Activity a,int accent){
         if(a.isFinishing()||a.isDestroyed())return;
-        present(a,new AlertDialog.Builder(a).setTitle(title).setMessage(message)
-            .setPositiveButton("Понятно",null),0xff4dd69c);
-    });}
-    public static void checkAndOffer(Activity activity,int accent){
-        final AlertDialog waiting=present(activity,new AlertDialog.Builder(activity).setTitle("Проверка обновлений")
-            .setMessage("Подключение к серверу…")
-            .setCancelable(false),accent);
+        MediaOtaDialog ui=new MediaOtaDialog(a,accent);ui.show();check(a,accent,ui);
+    }
+    private static void check(Activity a,int accent,MediaOtaDialog ui){
+        ui.stage("Проверка соединения…","Подключение к серверу…");
         worker.execute(()->{
-            try {
-                URLConnection c=connection(MANIFEST);ByteArrayOutputStream out=new ByteArrayOutputStream();
-                try(InputStream in=c.getInputStream()) {byte[] buf=new byte[4096];int n;
-                    while((n=in.read(buf))!=-1){if(out.size()+n>65536)throw new IOException("Слишком большой манифест");out.write(buf,0,n);}
+            try{
+                URLConnection conn=connection(MANIFEST);
+                ByteArrayOutputStream data=new ByteArrayOutputStream();
+                try(InputStream in=conn.getInputStream()){
+                    byte[] b=new byte[4096];int n;
+                    while((n=in.read(b))!=-1){
+                        if(data.size()+n>65536)throw new IOException("Слишком большой манифест");
+                        data.write(b,0,n);
+                    }
                 }
-                Release rel=new Release(new JSONObject(out.toString("UTF-8")));
-                long current=activity.getPackageManager().getPackageInfo(activity.getPackageName(),0).versionCode;
+                Release release=new Release(new JSONObject(data.toString("UTF-8")));
+                long installed=a.getPackageManager().getPackageInfo(a.getPackageName(),0).getLongVersionCode();
                 main.post(()->{
-                    waiting.dismiss();if(activity.isFinishing()||activity.isDestroyed())return;
-                    if(rel.code<=current){present(activity,new AlertDialog.Builder(activity).setTitle("Обновлений нет")
-                        .setMessage("Установлена актуальная версия · "+BuildConfig.VERSION_NAME)
-                        .setPositiveButton("Готово",null),accent);return;}
-                    android.widget.ScrollView scroll=new android.widget.ScrollView(activity);
-                    TextView notes=new TextView(activity);
-                    notes.setText(styledNotes("Размер: "+String.format(Locale.US,"%.1f МБ",rel.size/1048576.0)+"\n\n"+
-                            changelog(rel,current)));
-                    notes.setTextSize(14);notes.setTextColor(activity.getPreferences(0).getInt("theme",0)==2 ? 0xff18293e : 0xffd7e5ff);
-                    notes.setPadding(32,24,32,24);notes.setLineSpacing(6,1.12f);
-                    scroll.addView(notes);scroll.setBackgroundColor(activity.getPreferences(0).getInt("theme",0)==2 ? 0xfff5f7fc : 0xff101927);
-                    present(activity,new AlertDialog.Builder(activity).setTitle("Обновление MediaLAB "+rel.name)
-                        .setView(scroll)
-                        .setNegativeButton("Позже",null)
-                        .setPositiveButton("Скачать и установить",(d,w)->download(activity,rel,accent)),accent);
+                    if(a.isFinishing()||a.isDestroyed()||!ui.isShowing())return;
+                    if(release.code<=installed)ui.current("MediaLAB "+BuildConfig.VERSION_NAME);
+                    else ui.offer(release.name,changelog(release,installed),()->download(a,release,ui));
                 });
-            }catch(Exception e){main.post(waiting::dismiss);show(activity,"Не удалось проверить OTA",e.getMessage());}
+            }catch(Exception e){
+                String message=e.getMessage()==null?"Ошибка подключения":e.getMessage();
+                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed()&&ui.isShowing())
+                    ui.fail(message,()->check(a,accent,ui));});
+            }
         });
     }
-    private static void download(Activity a, Release release,int color){
-        LinearLayout layout=new LinearLayout(a);layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(48,32,48,24);layout.setGravity(Gravity.CENTER_VERTICAL);
-        TextView status=new TextView(a);status.setText("Загрузка APK…");status.setTextSize(14);
-        ProgressBar progress=new ProgressBar(a,null,android.R.attr.progressBarStyleHorizontal);
-        progress.setMax(100);progress.setProgressTintList(android.content.res.ColorStateList.valueOf(color));
-        layout.addView(status);layout.addView(progress);
-        boolean light=a.getPreferences(0).getInt("theme",0)==2;
-        status.setTextColor(light?0xff18293e:0xffe9f1ff);
-        status.setPadding(0,0,0,(int)(14*a.getResources().getDisplayMetrics().density));
-        progress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(light?0xffdce4ed:0xff304252));
-        AlertDialog dialog=present(a,new AlertDialog.Builder(a).setTitle("Загрузка обновления")
-            .setView(layout).setCancelable(false),color);
+    private static void download(Activity a,Release release,MediaOtaDialog ui){
+        ui.stage("Подготовка загрузки…","MediaLAB "+release.name);
         worker.execute(()->{
             File target=file(a),temp=new File(target.getParentFile(),"MediaLAB-candidate.apk");
-            try {
-                if(!target.getParentFile().exists()&&!target.getParentFile().mkdirs())throw new IOException("Нет папки OTA");
+            try{
+                if(!target.getParentFile().exists()&&!target.getParentFile().mkdirs())
+                    throw new IOException("Не удалось создать папку OTA");
+                if(target.getParentFile().getUsableSpace()<release.size+4L*1024*1024)
+                    throw new IOException("Недостаточно места для обновления");
                 URLConnection conn=connection(release.url);
-                long got=0;MessageDigest digest=MessageDigest.getInstance("SHA-256");
-                // Throttle main-thread progress updates. Large downloads previously queued
-                // thousands of UI callbacks, competing with drawing and touch handling.
-                long lastUiAt=0L;
-                int lastPercent=-1;
+                MessageDigest digest=MessageDigest.getInstance("SHA-256");
+                long got=0,lastUi=0;int lastPercent=-1;
                 try(InputStream in=conn.getInputStream();OutputStream out=new FileOutputStream(temp)){
                     byte[] b=new byte[65536];int n;
-                    while((n=in.read(b))!=-1){got+=n;if(got>MAX_SIZE||got>release.size)throw new IOException("Неправильный размер APK");
+                    while((n=in.read(b))!=-1){
+                        got+=n;
+                        if(got>MAX_SIZE||got>release.size)throw new IOException("Неверный размер APK");
                         out.write(b,0,n);digest.update(b,0,n);
-                        final int pct=(int)Math.min(100,got*100/release.size);
+                        int pct=(int)Math.min(100,got*100/release.size);
                         long now=android.os.SystemClock.uptimeMillis();
-                        if(pct==100 || (now-lastUiAt>=120L && pct!=lastPercent)){
-                            lastUiAt=now;lastPercent=pct;
-                            final long transferred=got;
-                            main.post(()->{
-                                if(!dialog.isShowing()||a.isFinishing()||a.isDestroyed())return;
-                                progress.setProgress(pct);
-                                status.setText(String.format(Locale.US,"Получено %.1f / %.1f МБ",transferred/1048576.0,release.size/1048576.0));
-                            });
+                        if(pct==100||(pct!=lastPercent&&now-lastUi>=120)){
+                            lastUi=now;lastPercent=pct;long received=got;
+                            main.post(()->{if(!a.isFinishing()&&!a.isDestroyed()&&ui.isShowing())
+                                ui.downloading(received,release.size);});
                         }
                     }
                 }
-                if(got!=release.size||!release.sha.equals(hex(digest.digest())))throw new IOException("Контрольная сумма APK не совпадает");
-                main.post(()->{
-                    if(dialog.isShowing()&&!a.isFinishing()&&!a.isDestroyed()){
-                        progress.setProgress(100);
-                        status.setText("Проверка подписи APK…");
-                    }
-                });
+                if(got!=release.size||!release.sha.equals(hex(digest.digest())))
+                    throw new IOException("SHA-256 или размер APK не совпадают");
+                main.post(()->{if(ui.isShowing())ui.stage("Проверка подписи APK…","Сверяем сертификат");});
+                PackageInfo archive=a.getPackageManager().getPackageArchiveInfo(temp.getAbsolutePath(),0);
+                if(archive==null||archive.getLongVersionCode()!=release.code)
+                    throw new IOException("Версия APK не совпадает с манифестом");
                 checkSigner(a,temp);
-                if(target.exists()&&!target.delete())throw new IOException("Не удалось заменить старое обновление");
+                if(target.exists()&&!target.delete())throw new IOException("Не удалось заменить APK");
                 if(!temp.renameTo(target))throw new IOException("Не удалось сохранить APK");
-                main.post(()->{dialog.dismiss();if(!a.isFinishing()&&!a.isDestroyed()){
-                    present(a,new AlertDialog.Builder(a).setTitle("APK проверен")
-                      .setMessage("Размер, SHA-256 и сертификат совпадают. Установить обновление?")
-                      .setNegativeButton("Позже",null).setPositiveButton("Установить",(d,w)->install(a)),color);
-                }});
-            }catch(Exception e){temp.delete();main.post(dialog::dismiss);show(a,"Ошибка обновления",e.getMessage());}
+                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed()&&ui.isShowing())
+                    ui.ready(release.name,()->install(a,ui));});
+            }catch(Exception e){
+                temp.delete();String message=e.getMessage()==null?"Ошибка загрузки":e.getMessage();
+                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed()&&ui.isShowing())
+                    ui.fail(message,()->download(a,release,ui));});
+            }
         });
     }
-    private static void install(Activity a){
-        if(Build.VERSION.SDK_INT>=26&&!a.getPackageManager().canRequestPackageInstalls()){
-            show(a,"Разрешение на установку","Разреши установку обновлений из MediaLAB, затем повтори действие в настройках.");
-            Intent settings=new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:"+a.getPackageName()));a.startActivity(settings);return;
+    private static void install(Activity a,MediaOtaDialog ui){
+        try{
+            File apk=file(a);if(!apk.isFile())throw new IOException("APK отсутствует");
+            checkSigner(a,apk);
+            if(Build.VERSION.SDK_INT>=26&&!a.getPackageManager().canRequestPackageInstalls()){
+                ui.fail("Разрешите установку APK для MediaLAB в настройках Android",
+                    ()->install(a,ui));
+                Intent settings=new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:"+a.getPackageName()));
+                a.startActivity(settings);return;
+            }
+            Uri uri=new Uri.Builder().scheme("content").authority("com.xarkon.medialab.ota").path("apk").build();
+            Intent i=new Intent(Intent.ACTION_VIEW);
+            i.setDataAndType(uri,"application/vnd.android.package-archive");
+            i.setClipData(android.content.ClipData.newRawUri("MediaLAB",uri));
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_ACTIVITY_NEW_TASK);
+            a.getApplicationContext().startActivity(i);
+        }catch(Exception e){
+            ui.fail(e.getMessage()==null?"Ошибка установки":e.getMessage(),()->install(a,ui));
         }
-        Intent i=new Intent(Intent.ACTION_VIEW);
-        i.setDataAndType(new Uri.Builder().scheme("content").authority("com.xarkon.medialab.ota").path("apk").build(),
-            "application/vnd.android.package-archive");
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_ACTIVITY_NEW_TASK);
-        try{a.startActivity(i);}catch(Exception e){show(a,"Установка недоступна",e.getMessage());}
     }
 }
