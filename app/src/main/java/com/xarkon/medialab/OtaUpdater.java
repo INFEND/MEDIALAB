@@ -157,9 +157,47 @@ public final class OtaUpdater {
                 MessageDigest.getInstance("SHA-256").digest(future)))
             throw new IOException("Сертификат APK отличается от установленной версии. Для OTA нужна та же постоянная подпись.");
     }
+    /** Consistent AMOLED/light OTA dialogs, including their system button and window chrome. */
+    private static AlertDialog present(Activity a,AlertDialog.Builder builder,int accent) {
+        AlertDialog dialog=builder.create();
+        dialog.setOnShowListener(ignored->{
+            boolean light=a.getPreferences(0).getInt("theme",0)==2;
+            int surface=light?0xfff5f7fc:0xff101927;
+            int foreground=light?0xff18293e:0xffe9f1ff;
+            android.graphics.drawable.GradientDrawable background=new android.graphics.drawable.GradientDrawable();
+            background.setColor(surface);
+            background.setCornerRadius(a.getResources().getDisplayMetrics().density*22f);
+            background.setStroke((int)(a.getResources().getDisplayMetrics().density),light?0xffdce4ed:0xff304252);
+            if(dialog.getWindow()!=null){
+                dialog.getWindow().setBackgroundDrawable(background);
+                dialog.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+                android.view.WindowManager.LayoutParams lp=dialog.getWindow().getAttributes();
+                lp.dimAmount=.65f;
+                lp.width=Math.min(a.getResources().getDisplayMetrics().widthPixels-
+                    (int)(32*a.getResources().getDisplayMetrics().density),
+                    (int)(460*a.getResources().getDisplayMetrics().density));
+                dialog.getWindow().setAttributes(lp);
+            }
+            int[] buttons={AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL};
+            for(int which:buttons){
+                android.widget.Button button=dialog.getButton(which);
+                if(button!=null){button.setTextColor(which==AlertDialog.BUTTON_POSITIVE?accent:foreground);
+                    button.setAllCaps(false);}
+            }
+            int titleId=a.getResources().getIdentifier("alertTitle","id","android");
+            if(titleId!=0){android.view.View title=dialog.findViewById(titleId);
+                if(title instanceof TextView)((TextView)title).setTextColor(foreground);}
+            int messageId=android.R.id.message;
+            android.view.View message=dialog.findViewById(messageId);
+            if(message instanceof TextView)((TextView)message).setTextColor(foreground);
+        });
+        dialog.show();
+        return dialog;
+    }
     private static void show(Activity a,String title,String message) {main.post(()->{
         if(a.isFinishing()||a.isDestroyed())return;
-        new AlertDialog.Builder(a).setTitle(title).setMessage(message).setPositiveButton("Понятно",null).show();
+        present(a,new AlertDialog.Builder(a).setTitle(title).setMessage(message)
+            .setPositiveButton("Понятно",null),0xff4dd69c);
     });}
     public static void checkAndOffer(Activity activity,int accent){
         final AlertDialog waiting=new AlertDialog.Builder(activity).setTitle("MediaLAB · OTA")
@@ -175,9 +213,9 @@ public final class OtaUpdater {
                 long current=activity.getPackageManager().getPackageInfo(activity.getPackageName(),0).versionCode;
                 main.post(()->{
                     waiting.dismiss();if(activity.isFinishing()||activity.isDestroyed())return;
-                    if(rel.code<=current){new AlertDialog.Builder(activity).setTitle("Обновлений нет")
+                    if(rel.code<=current){present(activity,new AlertDialog.Builder(activity).setTitle("Обновлений нет")
                         .setMessage("Установлена актуальная версия · "+BuildConfig.VERSION_NAME)
-                        .setPositiveButton("Готово",null).show();return;}
+                        .setPositiveButton("Готово",null),accent);return;}
                     android.widget.ScrollView scroll=new android.widget.ScrollView(activity);
                     TextView notes=new TextView(activity);
                     notes.setText(styledNotes("Размер: "+String.format(Locale.US,"%.1f МБ",rel.size/1048576.0)+"\n\n"+
@@ -185,10 +223,10 @@ public final class OtaUpdater {
                     notes.setTextSize(14);notes.setTextColor(activity.getPreferences(0).getInt("theme",0)==2 ? 0xff18293e : 0xffd7e5ff);
                     notes.setPadding(32,24,32,24);notes.setLineSpacing(6,1.12f);
                     scroll.addView(notes);scroll.setBackgroundColor(activity.getPreferences(0).getInt("theme",0)==2 ? 0xfff5f7fc : 0xff101927);
-                    new AlertDialog.Builder(activity).setTitle("Обновление MediaLAB "+rel.name)
+                    present(activity,new AlertDialog.Builder(activity).setTitle("Обновление MediaLAB "+rel.name)
                         .setView(scroll)
                         .setNegativeButton("Позже",null)
-                        .setPositiveButton("Скачать и установить",(d,w)->download(activity,rel,accent)).show();
+                        .setPositiveButton("Скачать и установить",(d,w)->download(activity,rel,accent)),accent);
                 });
             }catch(Exception e){main.post(waiting::dismiss);show(activity,"Не удалось проверить OTA",e.getMessage());}
         });
@@ -240,9 +278,9 @@ public final class OtaUpdater {
                 if(target.exists()&&!target.delete())throw new IOException("Не удалось заменить старое обновление");
                 if(!temp.renameTo(target))throw new IOException("Не удалось сохранить APK");
                 main.post(()->{dialog.dismiss();if(!a.isFinishing()&&!a.isDestroyed()){
-                    new AlertDialog.Builder(a).setTitle("APK проверен")
+                    present(a,new AlertDialog.Builder(a).setTitle("APK проверен")
                       .setMessage("Размер, SHA-256 и сертификат совпадают. Установить обновление?")
-                      .setNegativeButton("Позже",null).setPositiveButton("Установить",(d,w)->install(a)).show();
+                      .setNegativeButton("Позже",null).setPositiveButton("Установить",(d,w)->install(a)),color);
                 }});
             }catch(Exception e){temp.delete();main.post(dialog::dismiss);show(a,"Ошибка обновления",e.getMessage());}
         });
