@@ -155,16 +155,34 @@ public final class OtaUpdater {
                 if(!target.getParentFile().exists()&&!target.getParentFile().mkdirs())throw new IOException("Нет папки OTA");
                 URLConnection conn=connection(release.url);
                 long got=0;MessageDigest digest=MessageDigest.getInstance("SHA-256");
+                // Throttle main-thread progress updates. Large downloads previously queued
+                // thousands of UI callbacks, competing with drawing and touch handling.
+                long lastUiAt=0L;
+                int lastPercent=-1;
                 try(InputStream in=conn.getInputStream();OutputStream out=new FileOutputStream(temp)){
                     byte[] b=new byte[65536];int n;
                     while((n=in.read(b))!=-1){got+=n;if(got>MAX_SIZE||got>release.size)throw new IOException("Неправильный размер APK");
                         out.write(b,0,n);digest.update(b,0,n);
-                        final long transferred=got;
-                        main.post(()->{progress.setProgress((int)Math.min(100,transferred*100/release.size));
-                            status.setText(String.format(Locale.US,"Получено %.1f / %.1f МБ",transferred/1048576.0,release.size/1048576.0));});
+                        final int pct=(int)Math.min(100,got*100/release.size);
+                        long now=android.os.SystemClock.uptimeMillis();
+                        if(pct==100 || (now-lastUiAt>=120L && pct!=lastPercent)){
+                            lastUiAt=now;lastPercent=pct;
+                            final long transferred=got;
+                            main.post(()->{
+                                if(!dialog.isShowing()||a.isFinishing()||a.isDestroyed())return;
+                                progress.setProgress(pct);
+                                status.setText(String.format(Locale.US,"Получено %.1f / %.1f МБ",transferred/1048576.0,release.size/1048576.0));
+                            });
+                        }
                     }
                 }
                 if(got!=release.size||!release.sha.equals(hex(digest.digest())))throw new IOException("Контрольная сумма APK не совпадает");
+                main.post(()->{
+                    if(dialog.isShowing()&&!a.isFinishing()&&!a.isDestroyed()){
+                        progress.setProgress(100);
+                        status.setText("Проверка подписи APK…");
+                    }
+                });
                 checkSigner(a,temp);
                 if(target.exists()&&!target.delete())throw new IOException("Не удалось заменить старое обновление");
                 if(!temp.renameTo(target))throw new IOException("Не удалось сохранить APK");
