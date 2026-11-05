@@ -104,7 +104,7 @@ public final class MediaOtaDialog {
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   displayedProgress=0;
   spinner.setVisibility(View.GONE);ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
-  notes.setText(changes==null?"":changes);history.setVisibility(changes==null||changes.isEmpty()?View.GONE:View.VISIBLE);
+  notes.setText(formatNotes(changes));history.setVisibility(changes==null||changes.trim().isEmpty()?View.GONE:View.VISIBLE);history.scrollTo(0,0);
   primary.setText("ОБНОВИТЬ");primary.setVisibility(View.VISIBLE);
   primary.setOnClickListener(v->action.run());secondary.setText("ПОЗЖЕ");
   bytes.setText("");percent.setText("");
@@ -153,4 +153,22 @@ public final class MediaOtaDialog {
   primary.setText("ПОВТОРИТЬ");primary.setVisibility(retry==null?View.GONE:View.VISIBLE);
   primary.setOnClickListener(v->{if(retry!=null)retry.run();});
  }
+ private static CharSequence formatNotes(String input){
+  android.text.SpannableStringBuilder result=new android.text.SpannableStringBuilder();
+  if(input==null)return result;
+  for(String line:input.split("\\n",-1)){
+   if(result.length()>0)result.append("\n");
+   int start=result.length();
+   result.append(line);
+   int tint=line.startsWith("[+]")?0xff4dd69c:line.startsWith("[-]")?0xfff07878:line.startsWith("[=]")?0xffffaa4d:0;
+   if(tint!=0){
+    result.setSpan(new android.text.style.ForegroundColorSpan(tint),start,start+3,33);
+    result.setSpan(new android.text.style.StyleSpan(Typeface.BOLD),start,start+3,33);
+   }else if(line.startsWith("Версия ")){
+    result.setSpan(new android.text.style.StyleSpan(Typeface.BOLD),start,start+line.length(),33);
+   }
+  }
+  return result;
+ }
+
 }
