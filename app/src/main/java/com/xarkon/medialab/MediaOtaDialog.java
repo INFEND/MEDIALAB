@@ -96,7 +96,7 @@ public final class MediaOtaDialog {
   title.setText(message);detail.setText(hint);spinner.setVisibility(View.VISIBLE);ring.setChecking(true);
   progress.setIndeterminate(true);history.setVisibility(View.GONE);
   primary.setVisibility(View.GONE);bytes.setText("");percent.setText("");
-  if(numberAnimation!=null)numberAnimation.cancel();displayedProgress=0;
+  if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}displayedProgress=0;
   progress.setProgress(0);ring.setProgressFraction(0f);
  }
  public void offer(String version,String changes,Runnable action){
@@ -115,8 +115,9 @@ public final class MediaOtaDialog {
   progress.setIndeterminate(total<=0);
   bytes.setText(String.format(Locale.US,"%.1f / %.1f МБ",done/1048576d,total/1048576d));
   if(total>0){int value=(int)Math.min(1000,done*1000/total);
-   if(numberAnimation!=null)numberAnimation.cancel();
-   numberAnimation=android.animation.ValueAnimator.ofInt(displayedProgress,value);
+   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
+   int from=progress.getProgress();
+   numberAnimation=android.animation.ValueAnimator.ofInt(from,value);
    numberAnimation.setDuration(170);
    numberAnimation.setInterpolator(new android.view.animation.DecelerateInterpolator());
    numberAnimation.addUpdateListener(animation->{
@@ -128,7 +129,7 @@ public final class MediaOtaDialog {
  public void ready(String version,Runnable install){
   title.setText("Обновление загружено");detail.setText("MediaLAB "+version+" · APK проверен");
   spinner.setVisibility(View.GONE);ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(1000);ring.setProgressFraction(1f);
-  if(numberAnimation!=null)numberAnimation.cancel();displayedProgress=1000;
+  if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}displayedProgress=1000;
   percent.setText("100%");bytes.setText("");history.setVisibility(View.GONE);
   primary.setText("УСТАНОВИТЬ");primary.setVisibility(View.VISIBLE);
   primary.setOnClickListener(v->install.run());
@@ -146,7 +147,8 @@ public final class MediaOtaDialog {
   title.setText("Ошибка обновления");detail.setText(message);
   displayedProgress=0;
   spinner.setVisibility(View.GONE);ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
-  if(numberAnimation!=null)numberAnimation.cancel();ring.setProgressFraction(0f);
+  if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
+  progress.setProgress(0);ring.setProgressFraction(0f);
   history.setVisibility(View.GONE);bytes.setText("");percent.setText("");
   primary.setText("ПОВТОРИТЬ");primary.setVisibility(retry==null?View.GONE:View.VISIBLE);
   primary.setOnClickListener(v->{if(retry!=null)retry.run();});
