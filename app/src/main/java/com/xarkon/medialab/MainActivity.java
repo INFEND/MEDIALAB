@@ -599,7 +599,7 @@ public final class MainActivity extends Activity {
             }
         }
         if (wasBusy != busy) updateButtons();
-        if (wasBusy && !busy && pendingExportAfterPreview) {
+        if (!busy && pendingExportAfterPreview) {
             pendingExportAfterPreview=false;
             pendingAutoPreview=false;
             ui.removeCallbacks(autoPreview);
