@@ -87,6 +87,7 @@ public final class MainActivity extends Activity {
     private int themeChoice = 0, accentChoice = 0;
     private int performanceChoice = 3;
     private boolean pendingAutoPreview = false;
+    private boolean pendingExportAfterPreview = false;
     private boolean openPreviewWhenReady = false;
     // Declare state before the lambda field initializer to avoid illegal forward references.
     private final ArrayList<ConvertEngine.Source> queue = new ArrayList<>();
@@ -598,6 +599,12 @@ public final class MainActivity extends Activity {
             }
         }
         if (wasBusy != busy) updateButtons();
+        if (wasBusy && !busy && pendingExportAfterPreview) {
+            pendingExportAfterPreview=false;
+            pendingAutoPreview=false;
+            ui.removeCallbacks(autoPreview);
+            perform(true);
+        }
         if (wasBusy && !busy && pendingAutoPreview) {
             pendingAutoPreview = false;
             ui.removeCallbacks(autoPreview);
@@ -1202,6 +1209,7 @@ public final class MainActivity extends Activity {
     private void afterSelectionEdited(String message) {
         ui.removeCallbacks(autoPreview);
         pendingAutoPreview=false;
+        pendingExportAfterPreview=false;
         openPreviewWhenReady=false;
         clearPreview();clearStaged();exported.clear();
         fastEstimatedBytes=-1;fastMetadataPending=false;
@@ -1543,7 +1551,8 @@ public final class MainActivity extends Activity {
         boolean has = !queue.isEmpty();
         busy = ConversionService.state.running;
         if (previewButton != null) previewButton.setEnabled(has && ffmpegReady && !(busy && ConversionService.state.exporting));
-        if (exportButton != null) exportButton.setEnabled(has && !busy && ffmpegReady);
+        if (exportButton != null)
+            exportButton.setEnabled(has && ffmpegReady && !(busy && ConversionService.state.exporting));
         if (cancelButton != null) cancelButton.setVisibility(busy ? View.VISIBLE : View.GONE);
         if (shareButton != null) shareButton.setVisibility(exported.isEmpty() ? View.GONE : View.VISIBLE);
         boolean exportingNow = busy && ConversionService.state.exporting;
@@ -1558,6 +1567,14 @@ public final class MainActivity extends Activity {
         statusLabel.setTextColor(error ? Color.rgb(255, 148, 154) : SECONDARY);
     }
     private void perform(boolean exporting) {
+        if (exporting && ConversionService.state.running && !ConversionService.state.exporting) {
+            pendingExportAfterPreview=true;
+            pendingAutoPreview=false;
+            ui.removeCallbacks(autoPreview);
+            startService(new Intent(this,ConversionService.class).setAction(ConversionService.ACTION_CANCEL));
+            setStatus("Останавливаем предпросмотр и запускаем пакетную конвертацию…",false);
+            return;
+        }
         if (busy || ConversionService.state.running || queue.isEmpty()) return;
         if (!ffmpegReady) {
             setStatus("Движок FFmpeg не готов: " + ffmpegDiagnostic, true);
