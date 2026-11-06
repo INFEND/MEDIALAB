@@ -22,6 +22,8 @@ public final class MediaOtaDialog {
  private final int accent;
  private android.animation.ValueAnimator numberAnimation;
  private int displayedProgress=0;
+ private long receivedBytes=0L;
+ private long expectedBytes=-1L;
  private enum State { CHECK, OFFER, DOWNLOAD, VERIFY, READY, CURRENT, ERROR }
  private State state=State.CHECK;
  private int dp(int n){return (int)(n*activity.getResources().getDisplayMetrics().density+.5f);}
@@ -78,6 +80,7 @@ public final class MediaOtaDialog {
   primary.setPadding(dp(14),dp(12),dp(14),dp(12));primary.setBackground(bg(tint,0));
   LinearLayout.LayoutParams blp=new LinearLayout.LayoutParams(-2,-2);blp.leftMargin=dp(9);
   actions.addView(primary,blp);primary.setVisibility(View.GONE);
+  // Keep the progress, notes and actions in one custom, theme-aware dialog.
   dialog.setContentView(root);
   dialog.setOnDismissListener(ignored->{
    if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
@@ -85,6 +88,7 @@ public final class MediaOtaDialog {
   });
  }
  public void show(){
+  if(dialog.isShowing())return;
   dialog.show();Window w=dialog.getWindow();if(w==null)return;
   w.setBackgroundDrawableResource(android.R.color.transparent);
   w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
@@ -96,6 +100,7 @@ public final class MediaOtaDialog {
  public void stage(String message,String hint){
   state=(message.toLowerCase(new Locale("ru")).contains("провер") && (message.toLowerCase(new Locale("ru")).contains("apk") || message.toLowerCase(new Locale("ru")).contains("подпис") || message.toLowerCase(new Locale("ru")).contains("sha"))) ? State.VERIFY : State.CHECK;
   title.setText(message);detail.setText(hint);ring.setChecking(true);
+  receivedBytes=0L;expectedBytes=-1L;
   progress.setIndeterminate(true);secondary.setText("СКРЫТЬ");
   primary.setVisibility(View.GONE);bytes.setText("");percent.setText("");
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}displayedProgress=0;
@@ -105,7 +110,7 @@ public final class MediaOtaDialog {
   state=State.OFFER;
   title.setText("Доступно обновление");detail.setText("MediaLAB "+version);
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
-  displayedProgress=0;
+  displayedProgress=0;receivedBytes=0L;expectedBytes=-1L;
   ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
   notes.setText(formatNotes(changes));history.setVisibility(changes==null||changes.trim().isEmpty()?View.GONE:View.VISIBLE);history.scrollTo(0,0);
   primary.setText("ОБНОВИТЬ");primary.setVisibility(View.VISIBLE);
@@ -113,7 +118,11 @@ public final class MediaOtaDialog {
   bytes.setText("");percent.setText("");
  }
  public void downloading(long done,long total){
-  if(state==State.VERIFY||state==State.READY||state==State.ERROR||state==State.CURRENT)return;
+  if(done<0||state==State.VERIFY||state==State.READY||state==State.ERROR||state==State.CURRENT)return;
+  // Ignore stale callbacks from an earlier transfer and keep progress monotonic.
+  if(state==State.DOWNLOAD && total>0 && expectedBytes>0 && total!=expectedBytes)return;
+  if(state==State.DOWNLOAD && done<receivedBytes)return;
+  receivedBytes=done;expectedBytes=total;
   state=State.DOWNLOAD;
   title.setText("Загрузка обновления");detail.setText("Защищённая загрузка MediaLAB");
   // Keep the progress arc determinate, with the numeric indicator synchronized below.
@@ -122,7 +131,7 @@ public final class MediaOtaDialog {
   bytes.setText(total>0?String.format(new Locale("ru"),"%.1f / %.1f МБ",done/1048576d,total/1048576d):String.format(new Locale("ru"),"%.1f МБ",done/1048576d));
   if(total>0){int value=(int)Math.min(1000L,Math.max(0L,done)*1000d/total);
    if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
-   int from=progress.getProgress();
+   int from=Math.max(progress.getProgress(),displayedProgress);
    // A late or duplicate callback must not visually roll the download backwards.
    value=Math.max(from,value);
    final int target=value;
