@@ -22,6 +22,8 @@ public final class MediaOtaDialog {
  private final int accent;
  private android.animation.ValueAnimator numberAnimation;
  private int displayedProgress=0;
+ private enum State { CHECK, OFFER, DOWNLOAD, VERIFY, READY, CURRENT, ERROR }
+ private State state=State.CHECK;
  private int dp(int n){return (int)(n*activity.getResources().getDisplayMetrics().density+.5f);}
  private GradientDrawable bg(int fill,int border){
   GradientDrawable d=new GradientDrawable();d.setColor(fill);d.setCornerRadius(dp(19));
@@ -92,6 +94,7 @@ public final class MediaOtaDialog {
  }
  public boolean isShowing(){return dialog.isShowing();}
  public void stage(String message,String hint){
+  state=message.contains("подписи")||message.contains("Проверка APK")?State.VERIFY:State.CHECK;
   title.setText(message);detail.setText(hint);ring.setChecking(true);
   progress.setIndeterminate(true);secondary.setText("СКРЫТЬ");
   primary.setVisibility(View.GONE);bytes.setText("");percent.setText("");
@@ -99,6 +102,7 @@ public final class MediaOtaDialog {
   progress.setProgress(0);ring.setProgressFraction(0f);
  }
  public void offer(String version,String changes,Runnable action){
+  state=State.OFFER;
   title.setText("Доступно обновление");detail.setText("MediaLAB "+version);
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   displayedProgress=0;
@@ -109,12 +113,14 @@ public final class MediaOtaDialog {
   bytes.setText("");percent.setText("");
  }
  public void downloading(long done,long total){
+  if(state==State.VERIFY||state==State.READY||state==State.ERROR)return;
+  state=State.DOWNLOAD;
   title.setText("Загрузка обновления");detail.setText("Защищённая загрузка MediaLAB");
   // Keep the progress arc determinate, with the numeric indicator synchronized below.
   ring.setChecking(false);
   progress.setIndeterminate(total<=0);
   bytes.setText(total>0?String.format(new Locale("ru"),"%.1f / %.1f МБ",done/1048576d,total/1048576d):String.format(new Locale("ru"),"%.1f МБ",done/1048576d));
-  if(total>0){int value=(int)Math.min(1000,done*1000/total);
+  if(total>0){int value=(int)Math.min(1000L,Math.max(0L,done)*1000d/total);
    if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
    int from=progress.getProgress();
    numberAnimation=android.animation.ValueAnimator.ofInt(from,value);
@@ -128,6 +134,7 @@ public final class MediaOtaDialog {
   else {percent.setText("");ring.setProgressFraction(0f);}
  }
  public void ready(String version,Runnable install){
+  state=State.READY;
   title.setText("Обновление загружено");detail.setText("MediaLAB "+version+" · APK проверен");
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(1000);ring.setProgressFraction(1f);
@@ -136,6 +143,7 @@ public final class MediaOtaDialog {
   primary.setOnClickListener(v->install.run());
  }
  public void current(String version){
+  state=State.CURRENT;
   title.setText("Установлена актуальная версия");detail.setText(version);
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   displayedProgress=1000;
@@ -145,6 +153,7 @@ public final class MediaOtaDialog {
   bytes.setText("");percent.setText("");
  }
  public void fail(String message,Runnable retry){
+  state=State.ERROR;
   title.setText("Ошибка обновления");detail.setText(message);
   displayedProgress=0;
   ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
