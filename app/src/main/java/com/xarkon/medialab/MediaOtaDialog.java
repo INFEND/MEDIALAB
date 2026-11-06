@@ -15,7 +15,7 @@ import java.util.Locale;
 public final class MediaOtaDialog {
  private final Activity activity;
  private final Dialog dialog;
- private final TextView title,detail,bytes,percent,notes,primary,secondary;
+ private final TextView title,subtitle,detail,bytes,percent,notes,primary,secondary;
  private final ProgressBar progress;
  private final OtaRingView ring;
  private final ScrollView history;
@@ -47,6 +47,8 @@ public final class MediaOtaDialog {
   header.addView(ringFrame,spinLp);
   title=label("Обновление MediaLAB",20,fg);title.setTypeface(null,Typeface.BOLD);
   header.addView(title);root.addView(header);
+  subtitle=label("БЕЗОПАСНОЕ ОБНОВЛЕНИЕ",10,muted);subtitle.setTypeface(null,Typeface.BOLD);
+  LinearLayout.LayoutParams sublp=new LinearLayout.LayoutParams(-1,-2);sublp.topMargin=dp(8);root.addView(subtitle,sublp);
   detail=label("Подключение к серверу…",13,muted);
   LinearLayout.LayoutParams dlp=new LinearLayout.LayoutParams(-1,-2);dlp.topMargin=dp(16);
   root.addView(detail,dlp);
@@ -91,7 +93,7 @@ public final class MediaOtaDialog {
  public boolean isShowing(){return dialog.isShowing();}
  public void stage(String message,String hint){
   title.setText(message);detail.setText(hint);ring.setChecking(true);
-  progress.setIndeterminate(true);history.setVisibility(View.GONE);secondary.setText("СКРЫТЬ");
+  progress.setIndeterminate(true);secondary.setText("СКРЫТЬ");
   primary.setVisibility(View.GONE);bytes.setText("");percent.setText("");
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}displayedProgress=0;
   progress.setProgress(0);ring.setProgressFraction(0f);
@@ -108,9 +110,10 @@ public final class MediaOtaDialog {
  }
  public void downloading(long done,long total){
   title.setText("Загрузка обновления");detail.setText("Защищённая загрузка MediaLAB");
+  // Keep the progress arc determinate, with the numeric indicator synchronized below.
   ring.setChecking(false);
   progress.setIndeterminate(total<=0);
-  bytes.setText(String.format(Locale.US,"%.1f / %.1f МБ",done/1048576d,total/1048576d));
+  bytes.setText(total>0?String.format(new Locale("ru"),"%.1f / %.1f МБ",done/1048576d,total/1048576d):String.format(new Locale("ru"),"%.1f МБ",done/1048576d));
   if(total>0){int value=(int)Math.min(1000,done*1000/total);
    if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
    int from=progress.getProgress();
@@ -122,14 +125,14 @@ public final class MediaOtaDialog {
     progress.setProgress(shown);ring.setProgressFraction(shown/1000f);percent.setText(shown/10+"%");
    });
    numberAnimation.start();displayedProgress=value;}
+  else {percent.setText("");ring.setProgressFraction(0f);}
  }
  public void ready(String version,Runnable install){
   title.setText("Обновление загружено");detail.setText("MediaLAB "+version+" · APK проверен");
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(1000);ring.setProgressFraction(1f);
   displayedProgress=1000;
-  percent.setText("100%");bytes.setText("");history.setVisibility(View.GONE);
-  secondary.setText("ПОЗЖЕ");primary.setText("УСТАНОВИТЬ");primary.setVisibility(View.VISIBLE);
+  percent.setText("100%");bytes.setText("");secondary.setText("ПОЗЖЕ");primary.setText("УСТАНОВИТЬ");primary.setVisibility(View.VISIBLE);
   primary.setOnClickListener(v->install.run());
  }
  public void current(String version){
@@ -147,7 +150,7 @@ public final class MediaOtaDialog {
   ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   progress.setProgress(0);ring.setProgressFraction(0f);
-  history.setVisibility(View.GONE);bytes.setText("");percent.setText("");secondary.setText("ЗАКРЫТЬ");
+  bytes.setText("");percent.setText("");secondary.setText("ЗАКРЫТЬ");
   primary.setText("ПОВТОРИТЬ");primary.setVisibility(retry==null?View.GONE:View.VISIBLE);
   primary.setOnClickListener(v->{if(retry!=null)retry.run();});
  }
