@@ -122,7 +122,7 @@ public final class MainActivity extends Activity {
     private static String qualityName(int level) {
         return QUALITY_NAMES[level]+"  ["+QUALITY_STAGES[level]+"%]";
     }
-    private final int[] savedFormat = {0, 0, 0, 0};
+    private final int[] savedFormat = {3, 0, 0, 0};
     private final int[] savedResolution = {0, 0, 0, 0};
     private final int[] savedBitrate = {2, 2, 2, 2};
     private VideoView activeVideo;
@@ -1025,7 +1025,7 @@ public final class MainActivity extends Activity {
         ArrayList<Uri> uris = new ArrayList<>();
         android.content.ClipData clips = data.getClipData();
         if (clips != null) {
-            for (int i=0; i<clips.getItemCount() && i<100; i++) {
+            for (int i=0; i<clips.getItemCount() && i<1000; i++) {
                 Uri found=clips.getItemAt(i).getUri();
                 if (found != null && !uris.contains(found)) uris.add(found);
             }
@@ -1110,8 +1110,16 @@ public final class MainActivity extends Activity {
         cacheSettings();
         boolean changed=mode!=targetMode;
         mode=targetMode;
-        queue.clear();queue.addAll(files);visibleFiles=24;
-        selected=0;exported.clear();clearPreview();clearStaged();
+        if(changed){queue.clear();selected=0;visibleFiles=24;}
+        int added=0;
+        for(ConvertEngine.Source source:files){
+            boolean exists=false;
+            for(ConvertEngine.Source current:queue)
+                if(current.uri.equals(source.uri)){exists=true;break;}
+            if(!exists){queue.add(source);added++;}
+        }
+        if(added==0){setStatus("Выбранные файлы уже находятся в очереди",false);return;}
+        exported.clear();clearPreview();clearStaged();
         for (ConvertEngine.Source source:files) {
             try {getContentResolver().takePersistableUriPermission(source.uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
@@ -1120,7 +1128,7 @@ public final class MainActivity extends Activity {
         else {renderFiles();renderPreviews();updateButtons();}
         schedulePreview();
         String message=note.isEmpty()? "Определено: "+ConvertEngine.kindLabel(detected)+
-                ". Выбрано файлов: "+files.size():note;
+                ". Добавлено файлов: "+added+" · всего: "+queue.size():note;
         setStatus(message,false);
         if (changed) Toast.makeText(this,"Автоматически открыта вкладка: "+MODES[targetMode],Toast.LENGTH_SHORT).show();
     }
@@ -1131,6 +1139,9 @@ public final class MainActivity extends Activity {
             filesContainer.addView(txt("Файлы ещё не выбраны", 12, SECONDARY, false));
             return;
         }
+        Button clear=button("✕  Очистить весь список · "+queue.size(),false);
+        clear.setOnClickListener(v->clearSelectedFiles());
+        filesContainer.addView(clear,boxLp(-1,dp(43),8));
         for (int i = 0; i < Math.min(queue.size(),Math.max(visibleFiles,selected+1)); i++) {
             ConvertEngine.Source source = queue.get(i);
             int idx = i;
@@ -1141,7 +1152,13 @@ public final class MainActivity extends Activity {
             info.setSingleLine(true); info.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             line.addView(info, new LinearLayout.LayoutParams(0, -2, 1));
             line.addView(txt(ConvertEngine.humanBytes(source.size), 11, SECONDARY, false));
-            LinearLayout.LayoutParams p = boxLp(-1, dp(45), 5);
+            Button remove=button("✕",false);
+            remove.setContentDescription("Удалить из очереди "+source.name);
+            LinearLayout.LayoutParams removeLp=new LinearLayout.LayoutParams(dp(43),dp(42));
+            removeLp.leftMargin=dp(8);
+            line.addView(remove,removeLp);
+            remove.setOnClickListener(v->removeSelectedFile(idx));
+            LinearLayout.LayoutParams p = boxLp(-1, dp(49), 5);
             filesContainer.addView(line, p);
             line.setOnClickListener(v -> {
                 if (busy || selected == idx) return;
@@ -1156,6 +1173,42 @@ public final class MainActivity extends Activity {
             more.setOnClickListener(v->{visibleFiles+=24;renderFiles();});
             filesContainer.addView(more,boxLp(-1,dp(42),9));
         }
+    }
+    /** Queue edits never delete originals, and are blocked during active export. */
+    private void removeSelectedFile(int index) {
+        if(ConversionService.state.running && ConversionService.state.exporting){
+            setStatus("Для изменения списка дождитесь окончания экспорта или отмените его",true);
+            return;
+        }
+        if(index<0 || index>=queue.size())return;
+        String name=queue.remove(index).name;
+        if(index<selected)selected--;
+        selected=Math.max(0,Math.min(selected,queue.size()-1));
+        afterSelectionEdited("Убрано из очереди: "+name);
+    }
+    private void clearSelectedFiles() {
+        if(ConversionService.state.running && ConversionService.state.exporting){
+            setStatus("Для очистки списка дождитесь окончания экспорта или отмените его",true);
+            return;
+        }
+        queue.clear();selected=0;visibleFiles=24;
+        afterSelectionEdited("Список выбранных файлов очищен");
+    }
+    private void afterSelectionEdited(String message) {
+        ui.removeCallbacks(autoPreview);
+        pendingAutoPreview=false;
+        openPreviewWhenReady=false;
+        clearPreview();clearStaged();exported.clear();
+        fastEstimatedBytes=-1;fastMetadataPending=false;
+        estimateTicket.incrementAndGet();
+        if(queue.isEmpty()){
+            if(ConversionService.state.running && !ConversionService.state.exporting)
+                startService(new Intent(this,ConversionService.class).setAction(ConversionService.ACTION_CANCEL));
+            renderFiles();renderPreviews();updateButtons();
+        }else{
+            renderFiles();updateButtons();schedulePreview();
+        }
+        setStatus(message,false);
     }
     private void clearPreview() {
         stopPlayback();
@@ -1198,7 +1251,16 @@ public final class MainActivity extends Activity {
             String tag;
             if (mode==ConvertEngine.IMAGE) {
                 if(queue.size()==1) {bytes=sampleSize;tag="Точный размер результата";}
-                else {bytes=fastEstimatedBytes;tag="Прогноз на всю очередь · пример одной картинки";}
+                else {
+                    long sourceBytes=queue.get(selected).size;
+                    if(sourceBytes>0 && original>0 && sampleSize>0){
+                        double predicted=original*(sampleSize/(double)sourceBytes);
+                        bytes=(long)Math.min(Long.MAX_VALUE,Math.max(1.0,predicted));
+                        tag="Оценка по реально сжатому образцу · "+queue.size()+" фото";
+                    }else {bytes=fastEstimatedBytes;tag="Предварительный прогноз всей очереди";}
+                    estimateBox.addView(txt("Выбранный файл после сжатия: "+ConvertEngine.humanBytes(sampleSize),
+                            12,SECONDARY,false),boxLp(-1,-2,6));
+                }
             } else if(queue.size()>1) {bytes=fastEstimatedBytes;tag="Оценка всей очереди";
             } else if (previewDurationMs>0 && previewSampledMs>0) {
                 bytes=(long)(sampleSize*Math.max(1.0,previewDurationMs/(double)previewSampledMs));
