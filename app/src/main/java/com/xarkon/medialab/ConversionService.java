@@ -169,6 +169,8 @@ public final class ConversionService extends Service {
     private void process(Intent request, int startId) {
         String failure = null;
         int saved = 0;
+        int failed = 0;
+        String firstFileError = null;
         ArrayList<File> previews = new ArrayList<>();
         ArrayList<File> comparisons = new ArrayList<>();
         long sampledMs = 0, durationMs = 0, sampledBytes = 0;
@@ -213,11 +215,11 @@ public final class ConversionService extends Service {
             }
             for (int n = 0; n < files.size() && !cancellation.get(); n++) {
                 ConvertEngine.Source src = files.get(n);
-                ConvertEngine.Config itemCfg = ConvertEngine.forSource(cfg, src);
                 state.fileNumber = n + 1;
                 state.fileProgress = 0;
                 File input = null;
                 try {
+                    ConvertEngine.Config itemCfg = ConvertEngine.forSource(cfg, src);
                     markFile("Подготовка: " + src.name + " (" + (n+1) + "/" + files.size() + ")", 0);
                     if (!exporting && cachedPreviewInput != null && cachedPreviewInput.isFile()
                             && src.uri.equals(cachedPreviewUri)
@@ -314,6 +316,14 @@ public final class ConversionService extends Service {
                             } finally { if (output != null) output.delete(); }
                         }
                     }
+                } catch (Exception itemError) {
+                    if(cancellation.get())break;
+                    if(!exporting)throw itemError;
+                    failed++;
+                    if(firstFileError==null)
+                        firstFileError=src.name+": "+(itemError.getMessage()==null?"ошибка кодирования":itemError.getMessage());
+                    Log.e(TAG,"Skipped failed batch item: "+src.name,itemError);
+                    markFile("Не удалось обработать "+src.name+" ("+(n+1)+"/"+files.size()+")",100);
                 } finally {
                     // Preserve the staged source only for future previews of this URI.
                     if (input != null && (exporting || input != cachedPreviewInput)) input.delete();
@@ -340,6 +350,9 @@ public final class ConversionService extends Service {
             for (File temp : comparisons) temp.delete();
             if (failure != null) mark("Ошибка: " + failure, 0, true);
             else if (cancellation.get()) mark("Операция отменена. Сохранено: " + saved, 0, false);
+            else if (exporting && failed > 0)
+                mark("Завершено: сохранено "+saved+" из "+files.size()+
+                     ". Ошибок: "+failed+". Первая: "+firstFileError,100,true);
             else if (exporting) mark("Готово. Сохранено файлов: " + saved, 100, false);
             else mark("Выборка готова: " + state.parts.size() + " участков", 100, false);
             if (failure == null && !cancellation.get()) state.fileProgress = 100;
