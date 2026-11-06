@@ -16,7 +16,7 @@ public final class MediaOtaDialog {
  private final Activity activity;
  private final Dialog dialog;
  private final TextView title,detail,bytes,percent,notes,primary,secondary;
- private final ProgressBar spinner,progress;
+ private final ProgressBar progress;
  private final OtaRingView ring;
  private final ScrollView history;
  private final int accent;
@@ -40,13 +40,10 @@ public final class MediaOtaDialog {
   root.setPadding(dp(22),dp(22),dp(22),dp(20));
   root.setBackground(bg(light?0xfff9fbfd:mode==1?0xff101012:0xff15212d,light?0xffdce3ec:0xff304050));
   LinearLayout header=new LinearLayout(a);header.setGravity(Gravity.CENTER_VERTICAL);
-  spinner=new ProgressBar(a);spinner.setIndeterminateTintList(ColorStateList.valueOf(tint));
-  spinner.setContentDescription("Проверка обновления MediaLAB");
   LinearLayout.LayoutParams spinLp=new LinearLayout.LayoutParams(dp(39),dp(39));spinLp.rightMargin=dp(15);
   FrameLayout ringFrame=new FrameLayout(a);
   ring=new OtaRingView(a,tint);
   ringFrame.addView(ring,new FrameLayout.LayoutParams(dp(39),dp(39),Gravity.CENTER));
-  ringFrame.addView(spinner,new FrameLayout.LayoutParams(dp(22),dp(22),Gravity.CENTER));
   header.addView(ringFrame,spinLp);
   title=label("Обновление MediaLAB",20,fg);title.setTypeface(null,Typeface.BOLD);
   header.addView(title);root.addView(header);
@@ -93,8 +90,8 @@ public final class MediaOtaDialog {
  }
  public boolean isShowing(){return dialog.isShowing();}
  public void stage(String message,String hint){
-  title.setText(message);detail.setText(hint);spinner.setVisibility(View.VISIBLE);ring.setChecking(true);
-  progress.setIndeterminate(true);history.setVisibility(View.GONE);
+  title.setText(message);detail.setText(hint);ring.setChecking(true);
+  progress.setIndeterminate(true);history.setVisibility(View.GONE);secondary.setText("СКРЫТЬ");
   primary.setVisibility(View.GONE);bytes.setText("");percent.setText("");
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}displayedProgress=0;
   progress.setProgress(0);ring.setProgressFraction(0f);
@@ -103,15 +100,15 @@ public final class MediaOtaDialog {
   title.setText("Доступно обновление");detail.setText("MediaLAB "+version);
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   displayedProgress=0;
-  spinner.setVisibility(View.GONE);ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
+  ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
   notes.setText(formatNotes(changes));history.setVisibility(changes==null||changes.trim().isEmpty()?View.GONE:View.VISIBLE);history.scrollTo(0,0);
   primary.setText("ОБНОВИТЬ");primary.setVisibility(View.VISIBLE);
   primary.setOnClickListener(v->action.run());secondary.setText("ПОЗЖЕ");
   bytes.setText("");percent.setText("");
  }
  public void downloading(long done,long total){
-  title.setText("Загрузка обновления");detail.setText("MediaLAB");
-  history.setVisibility(View.GONE);spinner.setVisibility(View.GONE);ring.setChecking(false);
+  title.setText("Загрузка обновления");detail.setText("Защищённая загрузка MediaLAB");
+  ring.setChecking(false);
   progress.setIndeterminate(total<=0);
   bytes.setText(String.format(Locale.US,"%.1f / %.1f МБ",done/1048576d,total/1048576d));
   if(total>0){int value=(int)Math.min(1000,done*1000/total);
@@ -129,28 +126,28 @@ public final class MediaOtaDialog {
  public void ready(String version,Runnable install){
   title.setText("Обновление загружено");detail.setText("MediaLAB "+version+" · APK проверен");
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
-  spinner.setVisibility(View.GONE);ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(1000);ring.setProgressFraction(1f);
+  ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(1000);ring.setProgressFraction(1f);
   displayedProgress=1000;
   percent.setText("100%");bytes.setText("");history.setVisibility(View.GONE);
-  primary.setText("УСТАНОВИТЬ");primary.setVisibility(View.VISIBLE);
+  secondary.setText("ПОЗЖЕ");primary.setText("УСТАНОВИТЬ");primary.setVisibility(View.VISIBLE);
   primary.setOnClickListener(v->install.run());
  }
  public void current(String version){
   title.setText("Установлена актуальная версия");detail.setText(version);
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   displayedProgress=1000;
-  spinner.setVisibility(View.GONE);ring.setChecking(false);
+  ring.setChecking(false);
   progress.setIndeterminate(false);progress.setProgress(1000);ring.setProgressFraction(1f);
-  primary.setVisibility(View.GONE);history.setVisibility(View.GONE);
+  primary.setVisibility(View.GONE);history.setVisibility(View.GONE);secondary.setText("ЗАКРЫТЬ");
   bytes.setText("");percent.setText("");
  }
  public void fail(String message,Runnable retry){
   title.setText("Ошибка обновления");detail.setText(message);
   displayedProgress=0;
-  spinner.setVisibility(View.GONE);ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
+  ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   progress.setProgress(0);ring.setProgressFraction(0f);
-  history.setVisibility(View.GONE);bytes.setText("");percent.setText("");
+  history.setVisibility(View.GONE);bytes.setText("");percent.setText("");secondary.setText("ЗАКРЫТЬ");
   primary.setText("ПОВТОРИТЬ");primary.setVisibility(retry==null?View.GONE:View.VISIBLE);
   primary.setOnClickListener(v->{if(retry!=null)retry.run();});
  }
