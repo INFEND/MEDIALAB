@@ -94,7 +94,7 @@ public final class MediaOtaDialog {
  }
  public boolean isShowing(){return dialog.isShowing();}
  public void stage(String message,String hint){
-  state=message.contains("подписи")||message.contains("Проверка APK")?State.VERIFY:State.CHECK;
+  state=(message.toLowerCase(new Locale("ru")).contains("провер") && (message.toLowerCase(new Locale("ru")).contains("apk") || message.toLowerCase(new Locale("ru")).contains("подпис") || message.toLowerCase(new Locale("ru")).contains("sha"))) ? State.VERIFY : State.CHECK;
   title.setText(message);detail.setText(hint);ring.setChecking(true);
   progress.setIndeterminate(true);secondary.setText("СКРЫТЬ");
   primary.setVisibility(View.GONE);bytes.setText("");percent.setText("");
@@ -113,7 +113,7 @@ public final class MediaOtaDialog {
   bytes.setText("");percent.setText("");
  }
  public void downloading(long done,long total){
-  if(state==State.VERIFY||state==State.READY||state==State.ERROR)return;
+  if(state==State.VERIFY||state==State.READY||state==State.ERROR||state==State.CURRENT)return;
   state=State.DOWNLOAD;
   title.setText("Загрузка обновления");detail.setText("Защищённая загрузка MediaLAB");
   // Keep the progress arc determinate, with the numeric indicator synchronized below.
@@ -123,15 +123,18 @@ public final class MediaOtaDialog {
   if(total>0){int value=(int)Math.min(1000L,Math.max(0L,done)*1000d/total);
    if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
    int from=progress.getProgress();
-   numberAnimation=android.animation.ValueAnimator.ofInt(from,value);
+   // A late or duplicate callback must not visually roll the download backwards.
+   value=Math.max(from,value);
+   final int target=value;
+   numberAnimation=android.animation.ValueAnimator.ofInt(from,target);
    numberAnimation.setDuration(170);
    numberAnimation.setInterpolator(new android.view.animation.DecelerateInterpolator());
    numberAnimation.addUpdateListener(animation->{
     int shown=(int)animation.getAnimatedValue();
     progress.setProgress(shown);ring.setProgressFraction(shown/1000f);percent.setText(shown/10+"%");
    });
-   numberAnimation.start();displayedProgress=value;}
-  else {percent.setText("");ring.setProgressFraction(0f);}
+   numberAnimation.start();displayedProgress=target;}
+  else {percent.setText("");ring.setChecking(true);ring.setProgressFraction(0f);}
  }
  public void ready(String version,Runnable install){
   state=State.READY;
