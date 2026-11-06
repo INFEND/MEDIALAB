@@ -1152,7 +1152,12 @@ public final class MainActivity extends Activity {
             info.setSingleLine(true); info.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             line.addView(info, new LinearLayout.LayoutParams(0, -2, 1));
             line.addView(txt(ConvertEngine.humanBytes(source.size), 11, SECONDARY, false));
-            Button remove=button("✕",false);
+            ImageView remove=new ImageView(this);
+            remove.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
+            remove.setColorFilter(0xfff07878);
+            remove.setPadding(dp(10),dp(10),dp(10),dp(10));
+            remove.setBackground(new android.graphics.drawable.RippleDrawable(
+                    ColorStateList.valueOf(0x44ff8888),background(CARD2,BORDER,11),null));
             remove.setContentDescription("Удалить из очереди "+source.name);
             LinearLayout.LayoutParams removeLp=new LinearLayout.LayoutParams(dp(43),dp(42));
             removeLp.leftMargin=dp(8);
