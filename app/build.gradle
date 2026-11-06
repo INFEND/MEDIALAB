@@ -18,8 +18,8 @@ android {
         applicationId 'com.xarkon.medialab'
         minSdk 29
         targetSdk 35
-        versionCode 41
-        versionName '1.3.19'
+        versionCode 42
+        versionName '1.3.20'
         ndk {
             abiFilters 'arm64-v8a'
         }
@@ -53,4 +53,4 @@ dependencies {
     implementation files(localFfmpegAar)
 }
 
-logger.lifecycle('MediaLAB 1.3.19: bundled FFmpegKit Full AAR from app/libs')
+logger.lifecycle('MediaLAB 1.3.20: bundled FFmpegKit Full AAR from app/libs')
