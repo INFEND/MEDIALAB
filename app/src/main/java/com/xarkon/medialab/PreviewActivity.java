@@ -162,7 +162,7 @@ public final class PreviewActivity extends Activity {
         releasePlayer();
         ArrayList<String> sequence=mode==ConvertEngine.VIDEO?paired:parts;
         if(sequence==null || index>=sequence.size()) {
-            status.setText("Просмотр завершён");toggle.setText("Воспроизвести");
+            status.setText("Просмотр завершён");currentPart=0;toggle.setText("Повторить");
             pausedByUser=true;return;
         }
         File f=new File(sequence.get(index));
@@ -189,7 +189,8 @@ public final class PreviewActivity extends Activity {
                 else toggle.setText("Повторить");return true;
             });
             next.prepareAsync();
-        } catch(Exception e) {status.setText("Не удалось открыть сцену: "+e.getMessage());}
+        } catch(Exception e) {releasePlayer();status.setText("Не удалось открыть сцену: "+e.getMessage());toggle.setText("Повторить");
+            if(!closed&&index+1<sequence.size())stage.post(()->playPart(index+1));}
     }
     private void showImageCompare() {
         imageView=new BeforeAfterView(this);
@@ -198,7 +199,7 @@ public final class PreviewActivity extends Activity {
         io.execute(()->{
             Bitmap left=decode(source),right=decode(Uri.fromFile(new File(parts.get(0))));
             runOnUiThread(()->{
-                if(closed||imageView==null)return;
+                if(closed||imageView==null){if(left!=null)left.recycle();if(right!=null)right.recycle();return;}
                 if(left==null || right==null)status.setText("Изображение не открылось. Проверьте кодек и исходный файл.");
                 imageView.setImages(left,right);
             });

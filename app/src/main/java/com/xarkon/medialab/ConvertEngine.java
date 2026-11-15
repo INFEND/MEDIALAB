@@ -488,7 +488,7 @@ final class ConvertEngine {
         List<String> args = command(input, output, config, info, startMs, lengthMs);
         FFmpegSession result = FFmpegKit.executeWithArguments(args.toArray(new String[0]));
         // Android hardware video encoder availability varies. Use software MPEG-4 for supported containers.
-        if (!ReturnCode.isSuccess(result.getReturnCode()) &&
+        if (result!=null && !ReturnCode.isSuccess(result.getReturnCode()) &&
                 config.mode == VIDEO && !"avi".equals(config.format) &&
                 !"webm".equals(config.format) && !"gif".equals(config.format) &&
                 !ReturnCode.isCancel(result.getReturnCode())) {
@@ -578,22 +578,25 @@ final class ConvertEngine {
         values.put(MediaStore.MediaColumns.IS_PENDING, 1);
         Uri target = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
         if (target == null) throw new IOException("Android отказал в создании файла в Загрузках");
-        boolean success = false;
-        try (InputStream in = new FileInputStream(result); OutputStream out = resolver.openOutputStream(target)) {
-            if (out == null) throw new IOException("Не удалось открыть выходной документ");
-            byte[] buffer = new byte[1024 * 1024];
-            int n;
-            while ((n = in.read(buffer)) != -1) {
-                if (canceled.canceled()) throw new IOException("Операция отменена");
-                out.write(buffer, 0, n);
+        boolean success=false;
+        try {
+            try(InputStream in=new FileInputStream(result);OutputStream out=resolver.openOutputStream(target)){
+                if(out==null)throw new IOException("Не удалось открыть выходной документ");
+                byte[] buffer=new byte[1024*1024];int n;
+                while((n=in.read(buffer))!=-1){
+                    if(canceled.canceled())throw new IOException("Операция отменена");
+                    out.write(buffer,0,n);
+                }
+                out.flush();
             }
-            success = true;
-        } finally {
-            if (!success) resolver.delete(target, null, null);
+            if(canceled.canceled())throw new IOException("Операция отменена");
+            values.clear();
+            values.put(MediaStore.MediaColumns.IS_PENDING,0);
+            if(resolver.update(target,values,null,null)<=0)throw new IOException("Не удалось опубликовать файл");
+            success=true;
+        }finally{
+            if(!success)try{resolver.delete(target,null,null);}catch(Exception ignored){}
         }
-        values.clear();
-        values.put(MediaStore.MediaColumns.IS_PENDING, 0);
-        resolver.update(target, values, null, null);
         return target;
     }
     static String mime(int mode, String format) {

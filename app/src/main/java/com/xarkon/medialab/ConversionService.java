@@ -38,6 +38,8 @@ public final class ConversionService extends Service {
     private final AtomicBoolean processing = new AtomicBoolean(false);
     private PowerManager.WakeLock wakeLock;
     private long lastNotify = 0;
+    private int latestStartId;
+    private final android.os.Handler mainHandler=new android.os.Handler(android.os.Looper.getMainLooper());
     // One cached source can be reused across quality-preview changes.
     // A large file is not copied again on every slider adjustment.
     private static File cachedPreviewInput;
@@ -56,6 +58,8 @@ public final class ConversionService extends Service {
         volatile int fileCount;
         volatile int quality;
         volatile int performance;
+        volatile int resolution, bitrate;
+        volatile boolean canceled;
         volatile String status = "Готов к обработке";
         volatile long revision;
         volatile long durationMs;
@@ -114,6 +118,7 @@ public final class ConversionService extends Service {
     }
 
     @Override public int onStartCommand(Intent request, int flags, int startId) {
+        latestStartId=startId;
         if (request == null) return START_NOT_STICKY;
         if (ACTION_CANCEL.equals(request.getAction())) {
             cancellation.set(true);
@@ -125,7 +130,7 @@ public final class ConversionService extends Service {
         }
         if (!ACTION_START.equals(request.getAction()) || !processing.compareAndSet(false, true)) return START_NOT_STICKY;
         if(!NativeLibraryPack.isPrepared()){
-            processing.set(false);state.running=false;mark("Сначала докачайте FFmpeg в MediaLAB",0,true);stopSelf();return START_NOT_STICKY;
+            processing.set(false);state.running=false;mark("Сначала докачайте FFmpeg в MediaLAB",0,true);state.revision++;stopSelf();return START_NOT_STICKY;
         }
         cancellation.set(false);
         state.running = true;
@@ -135,6 +140,9 @@ public final class ConversionService extends Service {
         state.fileCount = 0;
         state.quality = request.getIntExtra("quality", 78);
         state.performance = request.getIntExtra("performance", 1);
+        state.resolution=request.getIntExtra("resolution",0);
+        state.bitrate=request.getIntExtra("bitrate",2);
+        state.canceled=false;
         state.error = false;
         state.exporting = request.getBooleanExtra("export", false);
         if (state.exporting) {
@@ -152,7 +160,7 @@ public final class ConversionService extends Service {
         state.earlySampleTotal=0;
         state.previewUnverified=false;
         state.previewSourceOnly=false;
-        state.fullPreview=request.getBooleanExtra("fullPreview",false);
+        state.fullPreview=request.getBooleanExtra("fullPreview",false)||state.quality!=SmartCompression.QUALITY;
         ArrayList<Uri> requestUris = request.getParcelableArrayListExtra("uris");
         state.sourceKey = requestUris != null && !requestUris.isEmpty() ?
                 requestUris.get(0).toString() : "";
@@ -168,6 +176,7 @@ public final class ConversionService extends Service {
             processing.set(false);
             state.running = false;
             mark("Не удалось запустить фоновую службу: " + ex.getMessage(), 0, true);
+            state.revision++;
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -260,7 +269,8 @@ public final class ConversionService extends Service {
                         }
                     }
                     if (cancellation.get()) break;
-                    ConvertEngine.MediaInfo info = itemCfg.mode==ConvertEngine.IMAGE?new ConvertEngine.MediaInfo():ConvertEngine.info(input);
+                    ConvertEngine.MediaInfo info = itemCfg.mode==ConvertEngine.IMAGE?new ConvertEngine.MediaInfo():direct!=null?ConvertEngine.info(this,src.uri):ConvertEngine.info(input);
+                    if(direct!=null&&info.durationMs<=0)info=ConvertEngine.info(input);
                     durationMs = info.durationMs;
                     if (exporting || itemCfg.mode == ConvertEngine.IMAGE) {
                         segmentsCount = files.size(); segmentIndex = n;
@@ -407,16 +417,21 @@ public final class ConversionService extends Service {
             else if (exporting) mark("Готово. Сохранено файлов: " + saved, 100, false);
             else mark(state.previewUnverified?"Демонстрационный предпросмотр: качество ASC PRO не подтверждено":"Выборка готова: " + state.parts.size() + " участков", 100, false);
             if (failure == null && !cancellation.get()) state.fileProgress = 100;
-            state.running = false;
-            state.revision++;
-            processing.set(false);
-            stopForeground(STOP_FOREGROUND_REMOVE);
-            stopSelf();
+            // Serialize lifecycle completion with onStartCommand on the main thread.
+            // Publish idle only after stopping the old foreground session.
+            mainHandler.post(()->{
+                state.canceled=cancellation.get();
+                stopForeground(STOP_FOREGROUND_REMOVE);
+                processing.set(false);
+                state.running=false;
+                state.revision++;
+                stopSelfResult(latestStartId);
+            });
         }
     }
 
     private void validate(FFmpegSession result, File output) throws Exception {
-        if (cancellation.get()) return;
+        if (cancellation.get()) throw new java.io.IOException("Операция отменена");
         if (result == null || !ReturnCode.isSuccess(result.getReturnCode()) || !output.exists() || output.length() == 0) {
             String logs = result == null ? "Отсутствует сессия" : result.getAllLogsAsString();
             if (logs == null) logs = "Нет сведений об ошибке";

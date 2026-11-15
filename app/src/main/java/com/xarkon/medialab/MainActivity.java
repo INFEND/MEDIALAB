@@ -62,6 +62,7 @@ public final class MainActivity extends Activity {
     private static final int PICK = 1217, PICK_FOLDER = 1218;
     private int folderMode;
     private boolean previewFull;
+    private boolean previewSourceOnly;
     private int BG = Color.rgb(9, 15, 27);
     private int CARD = Color.rgb(17, 27, 45);
     private int CARD2 = Color.rgb(26, 41, 64);
@@ -529,7 +530,7 @@ public final class MainActivity extends Activity {
     }
 
     private void openFullPreview() {
-        if (queue.isEmpty()) return;
+        if (queue.isEmpty()||pendingExportAfterPreview) return;
         if(ConversionService.state.running&&ConversionService.state.exporting)return;
         if (previewParts.isEmpty() || previewOutput == null || !previewOutput.exists() || (mode!=ConvertEngine.IMAGE && !previewFull)) {
             openPreviewWhenReady = true;
@@ -551,7 +552,7 @@ public final class MainActivity extends Activity {
         i.putExtra("source", queue.get(selected).uri.toString());
         i.putExtra("mode", mode);
         i.putExtra("previewUnverified",previewUnverified);
-        i.putExtra("previewSourceOnly",ConversionService.state.previewSourceOnly);
+        i.putExtra("previewSourceOnly",previewSourceOnly);
         i.putExtra("sourceName", queue.get(selected).name);
         ArrayList<String> paths = new ArrayList<>();
         for (File f : previewParts) if (f.exists()) paths.add(f.getAbsolutePath());
@@ -565,7 +566,8 @@ public final class MainActivity extends Activity {
     }
 
     private void restoreInstance(Bundle saved) {
-        mode = saved.getInt("mode", mode);
+        mode = Math.max(0,Math.min(MODES.length-1,saved.getInt("mode", mode)));
+        folderMode=saved.getInt("folderMode",mode);
         selected = saved.getInt("selected", 0);
         ArrayList<Uri> ids = saved.getParcelableArrayList("sourceUris");
         ArrayList<String> names = saved.getStringArrayList("sourceNames");
@@ -574,11 +576,11 @@ public final class MainActivity extends Activity {
             for (int i=0; i<ids.size() && i<names.size(); i++)
                 queue.add(new ConvertEngine.Source(ids.get(i), names.get(i), sizes != null && sizes.length > i ? sizes[i] : -1));
         }
-        selected = Math.min(selected, Math.max(0, queue.size()-1));
+        selected = Math.max(0,Math.min(selected, Math.max(0, queue.size()-1)));
     }
     @Override protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
-        state.putInt("mode", mode); state.putInt("selected", selected);
+        state.putInt("mode", mode); state.putInt("selected", selected);state.putInt("folderMode",folderMode);
         ArrayList<Uri> ids = new ArrayList<>(); ArrayList<String> names = new ArrayList<>();
         long[] sizes = new long[queue.size()];
         for (int n=0; n<queue.size(); n++) { ids.add(queue.get(n).uri); names.add(queue.get(n).name); sizes[n]=queue.get(n).size; }
@@ -596,6 +598,11 @@ public final class MainActivity extends Activity {
         stopPlayback();
         super.onPause();
     }
+    private boolean matchesPreviewSettings(ConversionService.Snapshot s){
+        if(queue.isEmpty()||formatSpinner==null||selected>=queue.size())return false;
+        ConvertEngine.Config cfg=config();
+        return s.mode==cfg.mode&&s.quality==cfg.quality&&s.performance==cfg.performance&&s.resolution==cfg.resolution&&s.bitrate==cfg.audioBitrate&&java.util.Objects.equals(s.format,cfg.format);
+    }
     private void pollState() {
         ConversionService.Snapshot s = ConversionService.state;
         boolean wasBusy = busy;
@@ -603,19 +610,20 @@ public final class MainActivity extends Activity {
         if (s.revision != lastJobRevision) {
             lastJobRevision = s.revision;
             if (!s.running && !s.exporting && !queue.isEmpty() && selected<queue.size() &&
-                    queue.get(selected).uri.toString().equals(s.sourceKey) && s.mode==mode && s.quality==savedQuality[mode]) {
+                    queue.get(selected).uri.toString().equals(s.sourceKey) && matchesPreviewSettings(s)) {
                 previewParts.clear(); pairedParts.clear();
                 synchronized (s.parts) { for (File f : s.parts) if (f.exists()) previewParts.add(f); }
                 synchronized (s.compareParts) { for (File f : s.compareParts) if (f.exists()) pairedParts.add(f); }
                 previewOutput = previewParts.isEmpty() ? null : previewParts.get(previewParts.size()/2);
-                previewSettings = previewParts.isEmpty() ? null : new ConvertEngine.Config(s.mode, s.format, s.quality, 0, 2, s.performance);
+                previewSettings = previewParts.isEmpty() ? null : new ConvertEngine.Config(s.mode, s.format, s.quality, s.resolution, s.bitrate, s.performance);
                 previewDurationMs = s.durationMs;
                 previewSampledMs = s.samplesMs;
                 previewUnverified = s.previewUnverified;
                 previewFull=s.fullPreview;
-                if (pendingAutoPreview) { previewParts.clear(); pairedParts.clear(); previewOutput = null; previewSettings = null; }
+                previewSourceOnly=s.previewSourceOnly;
+                if (pendingAutoPreview || s.canceled) { previewParts.clear(); pairedParts.clear(); previewOutput = null; previewSettings = null; }
                 if (!queue.isEmpty() && estimateBox != null) renderPreviews();
-                if (openPreviewWhenReady && !pendingAutoPreview && (!previewParts.isEmpty() || !s.fullPreview))
+                if (openPreviewWhenReady && !pendingAutoPreview && !s.canceled && !pendingExportAfterPreview && (!previewParts.isEmpty() || !s.fullPreview))
                     ui.post(this::openFullPreview);
                 else if(s.error && s.fullPreview)openPreviewWhenReady=false;
             }
@@ -631,7 +639,7 @@ public final class MainActivity extends Activity {
             ui.removeCallbacks(autoPreview);
             perform(true);
         }
-        if (wasBusy && !busy && pendingAutoPreview) {
+        if (!busy && pendingAutoPreview && !pendingExportAfterPreview) {
             pendingAutoPreview = false;
             ui.removeCallbacks(autoPreview);
             if(openPreviewWhenReady)ui.post(this::openFullPreview);
@@ -642,7 +650,7 @@ public final class MainActivity extends Activity {
         if (fileProgressBar != null) fileProgressBar.setProgress(s.fileProgress);
         if (totalProgressLabel != null) totalProgressLabel.setText("Общий прогресс   " + s.progress + "%");
         if (fileProgressLabel != null) fileProgressLabel.setText("Текущий файл " + s.fileNumber + "/" + s.fileCount + "   " + s.fileProgress + "%");
-        if (statusLabel != null && (busy || s.progress > 0 || s.error || s.status.startsWith("Операция")))
+        if (statusLabel != null && !pickerAnalyzing && (busy || wasBusy))
             setStatus(s.status, s.error);
     }
     private void showEmergencyScreen(Throwable problem) {
@@ -1058,8 +1066,8 @@ public final class MainActivity extends Activity {
     private void openPicker() {
         // Import remains available during a background preview. Only an actual export
         // locks the queue, otherwise the user would need to wait for five samples.
-        if (ConversionService.state.running && ConversionService.state.exporting) {
-            setStatus("Дождитесь окончания экспорта или отмените его", false);
+        if (pickerAnalyzing || (ConversionService.state.running && ConversionService.state.exporting)) {
+            setStatus("Дождитесь окончания текущей операции", false);
             return;
         }
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -1077,11 +1085,17 @@ public final class MainActivity extends Activity {
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION|Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         try{startActivityForResult(i,PICK_FOLDER);}catch(Exception e){setStatus("Выбор папки недоступен: "+e.getMessage(),true);}
     }
+    private static String documentKey(Uri uri){
+        try{return uri.getAuthority()+":"+android.provider.DocumentsContract.getDocumentId(uri);}
+        catch(Exception ignored){return uri.toString();}
+    }
     private void importFolder(Intent data){
         Uri tree=data.getData();if(tree==null||pickerAnalyzing)return;
         final int requested=folderMode;
         final int kind=requested==ConvertEngine.EXTRACT?ConvertEngine.VIDEO:requested;
         final int room=Math.max(0,1000-queue.size());
+        final java.util.HashSet<String> known=new java.util.HashSet<>();
+        for(ConvertEngine.Source src:queue)known.add(documentKey(src.uri));
         if(room==0){setStatus("Очередь заполнена: 1000 файлов",true);return;}
         try{getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
         pickerAnalyzing=true;setStatus("Сканируем папку и подпапки…",false);
@@ -1109,6 +1123,7 @@ public final class MainActivity extends Activity {
                             if(name==null||ConvertEngine.classify(mime,name)!=kind)continue;
                             long bytes=cursor.isNull(3)?-1:cursor.getLong(3);
                             Uri uri=android.provider.DocumentsContract.buildDocumentUriUsingTree(tree,child);
+                            if(!known.add(documentKey(uri)))continue;
                             found.add(new ConvertEngine.Source(uri,name,bytes));
                             if(found.size()>=room){capped=true;break;}
                         }
@@ -1228,7 +1243,7 @@ public final class MainActivity extends Activity {
         for(ConvertEngine.Source source:files){
             boolean exists=false;
             for(ConvertEngine.Source current:queue)
-                if(current.uri.equals(source.uri)){exists=true;break;}
+                if(documentKey(current.uri).equals(documentKey(source.uri))){exists=true;break;}
             if(!exists&&queue.size()<1000){queue.add(source);added++;}
         }
         if(added==0){setStatus("Выбранные файлы уже находятся в очереди",false);return;}
@@ -1332,7 +1347,7 @@ public final class MainActivity extends Activity {
     private void clearPreview() {
         stopPlayback();
         previewParts.clear(); pairedParts.clear();
-        previewOutput = null; previewSettings = null; previewDurationMs = 0; previewSampledMs = 0; previewUnverified=false; previewFull=false;
+        previewOutput = null; previewSettings = null; previewDurationMs = 0; previewSampledMs = 0; previewUnverified=false; previewFull=false; previewSourceOnly=false;
         lastJobRevision = ConversionService.state.revision;
     }
     private void clearStaged() {
@@ -1370,7 +1385,7 @@ public final class MainActivity extends Activity {
                 if(mode==ConvertEngine.VIDEO && previewSettings.quality==SmartCompression.QUALITY){
                     estimateBox.addView(txt("ASC PRO · ВЕРХНЯЯ ГРАНИЦА РАЗМЕРА",11,SECONDARY,true),boxLp(-1,-2,6));
                     estimateBox.addView(txt(original>0?"≤ "+ConvertEngine.humanBytes(original):"Размер исходника неизвестен",23,BLUE,true),boxLp(-1,-2,5));
-                    estimateBox.addView(txt(ConversionService.state.previewSourceOnly?"Некоторые сцены показывают исходник с обеих сторон: сравнение не удалось. Размер не подтверждён.":"Некоторые сцены не подтвердили качество. Предпросмотр ориентировочный; при экспорте программа проверит видео целиком и сохранит исходник, если меньший вариант не пройдёт контроль.",12,SECONDARY,false));
+                    estimateBox.addView(txt(previewSourceOnly?"Некоторые сцены показывают исходник с обеих сторон: сравнение не удалось. Размер не подтверждён.":"Некоторые сцены не подтвердили качество. Предпросмотр ориентировочный; при экспорте программа проверит видео целиком и сохранит исходник, если меньший вариант не пройдёт контроль.",12,SECONDARY,false));
                 }else{
                     estimateBox.addView(txt("Демонстрационный предпросмотр",13,BLUE,true),boxLp(-1,-2,6));
                     estimateBox.addView(txt("Не все сцены прошли контроль ASC PRO. Размер не прогнозируется по этим фрагментам; при экспорте качество проверяется отдельно.",12,SECONDARY,false));
@@ -1702,13 +1717,14 @@ public final class MainActivity extends Activity {
     private void perform(boolean exporting) {
         if (exporting && ConversionService.state.running && !ConversionService.state.exporting) {
             pendingExportAfterPreview=true;
+            openPreviewWhenReady=false;
             pendingAutoPreview=false;
             ui.removeCallbacks(autoPreview);
             startService(new Intent(this,ConversionService.class).setAction(ConversionService.ACTION_CANCEL));
             setStatus("Останавливаем предпросмотр и запускаем пакетную конвертацию…",false);
             return;
         }
-        if (busy || ConversionService.state.running || queue.isEmpty()) return;
+        if (busy || ConversionService.state.running || queue.isEmpty() || pickerAnalyzing) return;
         if (!ffmpegReady) {
             setStatus("Движок FFmpeg не готов: " + ffmpegDiagnostic, true);
             showEngineDiagnostics(); return;

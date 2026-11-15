@@ -101,7 +101,7 @@ final class SmartCompression {
                             if(avifInput==null){
                                 avifInput=ConvertEngine.outputTemp(ctx,"png");
                                 try(OutputStream stream=new FileOutputStream(avifInput)){
-                                    if(!a.compress(Bitmap.CompressFormat.PNG,100,stream))throw new IOException("PNG intermediate failed");
+                                    if(!a.compress(Bitmap.CompressFormat.PNG,100,stream)){avifInput.delete();avifInput=null;throw new IOException("PNG intermediate failed");}
                                 }
                             }
                             ok=exec(c,"-i",avifInput.getAbsolutePath(),"-frames:v","1","-c:v","libaom-av1","-still-picture","1","-cpu-used","8","-threads",String.valueOf(ConvertEngine.threads(performance)),"-row-mt","1","-crf",String.valueOf(63-q*45/100),"-b:v","0",out.getAbsolutePath())!=null;
@@ -183,8 +183,10 @@ final class SmartCompression {
                              boolean preview,ConvertEngine.Canceled c,Status status)throws IOException{
         boolean video=cfg.mode==ConvertEngine.VIDEO;
         // Preserve additional streams/cover art rather than silently discard them in audio compression.
-        MediaInformation mi=FFprobeKit.getMediaInformation(in.getAbsolutePath()).getMediaInformation();
-        if(mi==null || mi.getStreams()==null)return null;
+        com.arthenica.ffmpegkit.MediaInformationSession probe=FFprobeKit.getMediaInformation(in.getAbsolutePath());
+        check(c);
+        MediaInformation mi=probe==null?null:probe.getMediaInformation();
+        if(mi==null || mi.getStreams()==null || mi.getAllProperties()==null)return null;
         int videos=0,audios=0;String props=mi.getAllProperties().toString().toLowerCase(Locale.ROOT);
         for(com.arthenica.ffmpegkit.StreamInformation stream:mi.getStreams()){
             if("video".equals(stream.getType()))videos++;
@@ -214,13 +216,13 @@ final class SmartCompression {
                 if(!pass)continue;
                 status.update("ASC PRO · основное кодирование "+codec);
                 Result full=encodeCandidate(ctx,in,cfg,codec,q,bitrate,0,0,c);
-                if(full==null)return null;
+                if(full==null){if(cfg.mode==ConvertEngine.EXTRACT)continue;return null;}
                 try{
                     if(cfg.mode!=ConvertEngine.EXTRACT && full.file.length()>=in.length())return null;
                     long actual=ConvertEngine.info(full.file).durationMs;
                     if(inf.durationMs>0 && (actual<=0||Math.abs(actual-inf.durationMs)>Math.max(120,inf.durationMs/100)))return null;
                     status.update("ASC PRO · полный контроль качества "+codec);
-                    if(!checkCandidate(ctx,in,full,video,0,0,cfg.performance,c))return null;
+                    if(!checkCandidate(ctx,in,full,video,0,0,cfg.performance,c)){if(cfg.mode==ConvertEngine.EXTRACT)continue;return null;}
                     Result result=full;full=null;return result;
                 }finally{if(full!=null)full.file.delete();}
             }
