@@ -1,0 +1,84 @@
+import java.util.zip.*
+import java.security.MessageDigest
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import groovy.json.JsonOutput
+
+def original=file('libs/ffmpeg-kit-full-8.1.9.aar')
+def sha={byte[] b -> MessageDigest.getInstance('SHA-256').digest(b).encodeHex().toString()}
+if(!original.isFile() || sha(original.bytes)!='40b52770a339af3bf8c02d8a9808c89b5f0e0e56eca39c10dc76c01b90f32306')
+    throw new GradleException('Missing or invalid local FFmpeg AAR')
+def root=new File(rootProject.projectDir,'.gradle/medialab-engine-8.1.9');root.mkdirs()
+def assets=new File(root,'assets');assets.mkdirs()
+def thin=new File(root,'ffmpeg-java-only.aar')
+def pack=new File(root,'ffmpeg-arm64-8.1.9.zip')
+def libs=new TreeMap<String,byte[]>()
+def put={ZipOutputStream o,String name,byte[] data ->
+    def e=new ZipEntry(name);e.setTime(0L);o.putNextEntry(e);o.write(data);o.closeEntry()
+}
+def strip={byte[] jar ->
+    def bytes=new ByteArrayOutputStream();boolean found=false
+    new ZipInputStream(new ByteArrayInputStream(jar)).withCloseable{zin ->
+        new ZipOutputStream(bytes).withCloseable{out ->
+            ZipEntry e
+            while((e=zin.nextEntry)!=null){
+                if(e.name=='com/arthenica/ffmpegkit/NativeLoader.class'){found=true;continue}
+                if(!e.isDirectory())put(out,e.name,zin.readAllBytes())
+            }
+        }
+    }
+    if(!found)throw new GradleException('NativeLoader.class missing')
+    bytes.toByteArray()
+}
+new ZipFile(original).withCloseable{aar ->
+    new ZipOutputStream(new FileOutputStream(thin)).withCloseable{out ->
+        aar.entries().each{e ->
+            if(!e.isDirectory()){
+                if(e.name.startsWith('jni/arm64-v8a/') && e.name.endsWith('.so')){
+                    libs.put(e.name.substring('jni/arm64-v8a/'.length()),aar.getInputStream(e).withCloseable{it.readAllBytes()})
+                }else if(!e.name.startsWith('jni/')){
+                    byte[] b=aar.getInputStream(e).withCloseable{it.readAllBytes()}
+                    put(out,e.name,e.name=='classes.jar'?strip(b):b)
+                }
+            }
+        }
+    }
+}
+if(!libs.keySet().containsAll(['libffmpegkit.so','libffmpegkit_abidetect.so','libavcodec.so']))
+    throw new GradleException('Incomplete native pack')
+// Read DT_NEEDED so the loader can resolve dependencies by absolute path.
+def needed={byte[] data ->
+    def b=ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
+    if(b.getInt(0)!=0x464c457f || b.get(4)!=2 || b.get(5)!=1 || (b.getShort(18)&0xffff)!=183)
+        throw new GradleException('Expected ARM64 ELF64')
+    int phoff=(int)b.getLong(32), entsize=b.getShort(54)&0xffff, count=b.getShort(56)&0xffff
+    def loads=[];long dynOff=-1,dynSize=0
+    for(int i=0;i<count;i++){
+        int o=phoff+i*entsize,t=b.getInt(o)
+        long off=b.getLong(o+8),va=b.getLong(o+16),sz=b.getLong(o+32)
+        if(t==1)loads.add([off,va,sz])
+        if(t==2){dynOff=off;dynSize=sz}
+    }
+    if(dynOff<0)throw new GradleException('ELF dynamic table missing')
+    long strVa=-1;def offsets=[]
+    for(long i=0;i<dynSize;i+=16){
+        long tag=b.getLong((int)(dynOff+i)),v=b.getLong((int)(dynOff+i+8))
+        if(tag==0)break
+        if(tag==1)offsets.add(v)
+        if(tag==5)strVa=v
+    }
+    def seg=loads.find{strVa>=it[1] && strVa-it[1]<it[2]}
+    if(seg==null)throw new GradleException('ELF string table missing')
+    long strOff=seg[0]+strVa-seg[1]
+    offsets.collect{n ->
+        int start=(int)(strOff+n),end=start
+        while(end<data.length && data[end]!=0)end++
+        new String(data,start,end-start,'UTF-8')
+    }
+}
+def entries=libs.collect{name,data -> [name:name,bytes:data.length,sha256:sha(data),dependencies:needed(data).findAll{libs.containsKey(it)}]}
+new ZipOutputStream(new FileOutputStream(pack)).withCloseable{out -> libs.each{name,data -> put(out,name,data)}}
+new File(assets,'ffmpeg-pack.json').setText(JsonOutput.toJson([version:'8.1.9',abi:'arm64-v8a',url:'https://github.com/INFEND/MEDIALAB/releases/download/v1.3.27/ffmpeg-arm64-8.1.9.zip',files:entries]),'UTF-8')
+ext.medialabEngineAar=thin
+ext.medialabEngineAssets=assets
+logger.lifecycle('MediaLAB: separate ARM64 pack '+pack.length()+' bytes')

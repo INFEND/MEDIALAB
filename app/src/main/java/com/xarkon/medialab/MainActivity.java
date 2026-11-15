@@ -93,6 +93,8 @@ public final class MainActivity extends Activity {
     private final ArrayList<ConvertEngine.Source> queue = new ArrayList<>();
     private int visibleFiles=24;
     private volatile boolean ffmpegReady = false;
+    private volatile boolean ffmpegPreparing = false;
+    private Button engineRetryButton;
     private final java.util.concurrent.atomic.AtomicInteger estimateTicket = new java.util.concurrent.atomic.AtomicInteger();
     private final java.util.HashMap<String, ConvertEngine.MediaInfo> fastInfoCache = new java.util.HashMap<>();
     private volatile long fastEstimatedBytes = -1;
@@ -405,6 +407,10 @@ public final class MainActivity extends Activity {
         Button diagnostics=button("Диагностика FFmpeg",false);
         diagnostics.setOnClickListener(v->showEngineDiagnostics());
         system.addView(diagnostics,boxLp(-1,dp(46),2));
+        system.addView(txt("FFmpeg 8.1.9 · отдельный ARM64 пакет. Сохраняется при OTA.",11,SECONDARY,false),boxLp(-1,-2,8));
+        Button repair=button("Проверить / докачать FFmpeg",false);
+        repair.setOnClickListener(v->{if(ffmpegReady)showEngineDiagnostics();else initializeFfmpegAsync();});
+        system.addView(repair,boxLp(-1,dp(46),2));
 
         openSettingsDialog=new AlertDialog.Builder(this).setView(scroll).create();
         openSettingsDialog.setOnDismissListener(d->openSettingsDialog=null);
@@ -641,10 +647,17 @@ public final class MainActivity extends Activity {
     }
 
     private void initializeFfmpegAsync() {
+        if(ffmpegPreparing || ffmpegReady || isFinishing() || isDestroyed())return;
+        ffmpegPreparing=true;ffmpegChecked=false;
+        updateButtons();
         executor.execute(() -> {
             boolean working = false;
             String diagnostic;
             try {
+                NativeLibraryPack.prepare(getApplicationContext(), message -> ui.post(() -> {
+                    ffmpegDiagnostic=message;
+                    if(!isDestroyed())setStatus(message,false);
+                }));
                 FFmpegSession test = FFmpegKit.executeWithArguments(new String[]{"-version"});
                 if (test == null || !ReturnCode.isSuccess(test.getReturnCode())) {
                     throw new IllegalStateException("Тест FFmpeg -version не прошёл: " +
@@ -659,6 +672,8 @@ public final class MainActivity extends Activity {
             final boolean ok = working;
             final String diagnosticText = diagnostic;
             ui.post(() -> {
+                ffmpegPreparing=false;
+                if(isDestroyed())return;
                 ffmpegReady = ok;
                 ffmpegChecked = true;
                 ffmpegDiagnostic = diagnosticText;
@@ -673,7 +688,7 @@ public final class MainActivity extends Activity {
 
     private void showEngineDiagnostics() {
         ConversionService.Snapshot snapshot = ConversionService.state;
-        String message = "Версия: 1.2.6\nAndroid SDK: " + android.os.Build.VERSION.SDK_INT +
+        String message = "Версия: "+BuildConfig.VERSION_NAME+"\nAndroid SDK: " + android.os.Build.VERSION.SDK_INT +
                 "\nАрхитектура: " + java.util.Arrays.toString(android.os.Build.SUPPORTED_ABIS) +
                 "\nДвижок: " + (ffmpegReady ? "ГОТОВ" : ffmpegChecked ? "ОШИБКА" : "ПРОВЕРКА") +
                 "\n\n" + ffmpegDiagnostic +
@@ -687,6 +702,7 @@ public final class MainActivity extends Activity {
                     ClipboardManager c = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                     if (c != null) c.setPrimaryClip(ClipData.newPlainText("Media Lab", message));
                 })
+                .setNeutralButton(ffmpegReady?"Проверено":"Повторить докачку", (dialog, which) -> { if(!ffmpegReady)initializeFfmpegAsync(); })
                 .setNegativeButton("Закрыть", null)
                 .show();
     }
@@ -944,6 +960,9 @@ public final class MainActivity extends Activity {
         run.addView(fileProgressBar, boxLp(-1, dp(7), 12));
         statusLabel = txt("Проверка доступности FFmpeg…", 12, SECONDARY, false);
         run.addView(statusLabel, boxLp(-1, -2, 12));
+        engineRetryButton=button("Докачать библиотеку FFmpeg",false);
+        engineRetryButton.setOnClickListener(v->initializeFfmpegAsync());
+        run.addView(engineRetryButton,boxLp(-1,dp(46),6));
 
         cancelButton = button("Отменить операцию", false);
         cancelButton.setOnClickListener(v -> {
@@ -1249,7 +1268,7 @@ public final class MainActivity extends Activity {
         for (File item:previewParts) if(item.isFile())sampleSize+=item.length();
         if (ffmpegChecked && !ffmpegReady) {
             estimateBox.addView(txt("Движок конвертации недоступен",13,0xffff9199,true),boxLp(-1,-2,7));
-            estimateBox.addView(txt("Невозможно уточнить размер без FFmpeg. Проверьте библиотеку в app/libs.",11,SECONDARY,false));
+            estimateBox.addView(txt("Для обработки требуется FFmpeg. Нажмите «Докачать библиотеку FFmpeg».",11,SECONDARY,false));
             return;
         }
         if (!ConversionService.state.running && ConversionService.state.error &&
@@ -1551,6 +1570,7 @@ public final class MainActivity extends Activity {
     }
     private void updateButtons() {
         boolean has = !queue.isEmpty();
+        if(engineRetryButton!=null){engineRetryButton.setVisibility(ffmpegReady?View.GONE:View.VISIBLE);engineRetryButton.setEnabled(!ffmpegPreparing);}
         busy = ConversionService.state.running;
         if (previewButton != null) previewButton.setEnabled(has && ffmpegReady && !(busy && ConversionService.state.exporting));
         if (exportButton != null)

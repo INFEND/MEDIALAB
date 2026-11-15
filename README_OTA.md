@@ -14,3 +14,6 @@ Repository: https://github.com/INFEND/MEDIALAB
 Never commit release signing keys, secrets, passwords, or an unverified third-party AAR. Build step checks the SHA-256 of FFmpeg binary published by its upstream GitHub release.
 
 The workflow accepts legacy secret names `MEDIA_LAB_SIGNING_BUNDLE`, `MEDIALAB_RELEASE_SIGNING_BUNDLE`, `ANDROID_SIGNING_BUNDLE`, `SIGNING_BUNDLE` and `MEDIALAB_SIGNING`. All values must be Base64 ZIP bundles with signing.json and one PKCS12 file.
+
+## Lightweight APK and persistent FFmpeg (1.3.27+)
+Only `MediaLAB.apk` is used by OTA. FFmpeg 8.1.9 ARM64 is separately published as `ffmpeg-arm64-8.1.9.zip` in v1.3.27. The application verifies hashes from the signed APK and extracts into app-private no-backup storage. The engine survives APK updates. Migration from an embedded APK requires one download. For future codec-version upgrades change pinned AAR, engine version and asset URL together. No full APK is built.

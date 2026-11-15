@@ -55,19 +55,18 @@ jobs:
             'https://github.com/ffmpegkit-maintained/ffmpeg/releases/download/v8.1.9-lts-android/ffmpeg-kit-full-8.1.9-arm64-v8a-x86_64.aar'
           echo '40b52770a339af3bf8c02d8a9808c89b5f0e0e56eca39c10dc76c01b90f32306  app/libs/ffmpeg-kit-full-8.1.9.aar' | sha256sum --check --status
           test "$(stat -c%s app/libs/ffmpeg-kit-full-8.1.9.aar)" -eq 31057330
-          echo 'Verified FFmpegKit native libraries will be packaged inside the APK.'
+          echo 'Verified input; Java bridge only will be included in APK.'
 
       - name: Compile Android release
         run: gradle --no-daemon --stacktrace :app:assembleRelease
 
-      - name: Confirm native FFmpeg binaries are inside the compiled APK
+      - name: Verify lightweight APK and external ARM64 pack
         shell: bash
         run: |
           set -euo pipefail
           APK="$(find app/build/outputs/apk/release -name '*.apk' -type f | head -n 1)"
           test -n "$APK"
-          unzip -l "$APK" | grep -Eq 'lib/arm64-v8a/lib(ffmpegkit|avcodec|avformat)[^/]*\.so' \
-            || { echo '::error::Native FFmpeg libraries missing from compiled APK'; exit 1; }
+          python3 scripts/verify_engine_pack.py "$APK" .gradle/medialab-engine-8.1.9/ffmpeg-arm64-8.1.9.zip
 
       - name: Sign with the permanent identity from GitHub Secret
         env:
@@ -79,12 +78,14 @@ jobs:
         id: metadata
         run: python3 scripts/make_manifest.py
 
-      - name: Verify embedded FFmpeg ARM64 libraries
+      - name: Verify signed light APK and stage standalone library
         shell: bash
         run: |
           set -euo pipefail
-          unzip -l dist/MediaLAB.apk | grep -Eq 'lib/arm64-v8a/lib(ffmpegkit|avcodec|avformat)[^/]*\.so' \
-            || { echo '::error::FFmpeg ARM64 native libraries missing from APK'; exit 1; }
+          python3 scripts/verify_engine_pack.py dist/MediaLAB.apk .gradle/medialab-engine-8.1.9/ffmpeg-arm64-8.1.9.zip
+          if [ "${{ steps.metadata.outputs.tag }}" = v1.3.27 ]; then
+            cp .gradle/medialab-engine-8.1.9/ffmpeg-arm64-8.1.9.zip dist/
+          fi
           python3 -m json.tool dist/update.json >/dev/null
 
       - name: Retain signed build as workflow artifact
@@ -107,7 +108,13 @@ jobs:
             echo "::error::Release $TAG exists; increment versionCode and versionName for the next OTA."
             exit 1
           fi
-          gh release create "$TAG" dist/MediaLAB.apk dist/update.json \
+          ASSETS=(dist/MediaLAB.apk dist/update.json)
+          if [ "$TAG" = v1.3.27 ]; then
+            ASSETS+=(dist/ffmpeg-arm64-8.1.9.zip)
+          else
+            gh release view v1.3.27 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq 'ffmpeg-arm64-8.1.9.zip'
+          fi
+          gh release create "$TAG" "${ASSETS[@]}" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "MediaLAB $VERSION" --notes-file "release_notes/$TAG.txt" --latest
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \

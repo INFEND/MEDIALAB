@@ -120,6 +120,9 @@ public final class ConversionService extends Service {
             return START_NOT_STICKY;
         }
         if (!ACTION_START.equals(request.getAction()) || !processing.compareAndSet(false, true)) return START_NOT_STICKY;
+        if(!NativeLibraryPack.isPrepared()){
+            processing.set(false);state.running=false;mark("Сначала докачайте FFmpeg в MediaLAB",0,true);stopSelf();return START_NOT_STICKY;
+        }
         cancellation.set(false);
         state.running = true;
         state.progress = 0;
