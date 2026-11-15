@@ -370,7 +370,7 @@ public final class MainActivity extends Activity {
         performance.addView(txt("Число потоков не гарантирует ускорения. Android ограничивает работу при перегреве.",11,SECONDARY,false));
 
         LinearLayout preview=settingsGroup(body,"Предпросмотр","Синхронное сравнение до / после",android.R.drawable.ic_menu_slideshow);
-        preview.addView(txt("При изменении качества расчёт запускается после отпускания ползунка. Синхронный предпросмотр использует 15%, 30%, 50%, 70% и 80% длительности.",12,SECONDARY,false),boxLp(-1,-2,8));
+        preview.addView(txt("При изменении качества расчёт запускается после отпускания ползунка. Предпросмотр: один реальный фрагмент длительностью 5 секунд из середины файла.",12,SECONDARY,false),boxLp(-1,-2,8));
         preview.addView(txt("Шторка начинается с 50% и двигается внутри кадра. Предварительный размер не равен точному размеру готового файла.",12,SECONDARY,false));
 
         LinearLayout otaPanel = settingsGroup(body,"Обновления приложения","GitHub OTA · официальный канал",android.R.drawable.stat_sys_download_done);
@@ -533,7 +533,7 @@ public final class MainActivity extends Activity {
     private void openFullPreview() {
         if (queue.isEmpty()||pendingExportAfterPreview) return;
         if(ConversionService.state.running&&ConversionService.state.exporting)return;
-        if (previewParts.isEmpty() || previewOutput == null || !previewOutput.exists() || (mode!=ConvertEngine.IMAGE && !previewFull)) {
+        if (previewParts.isEmpty() || previewOutput == null || !previewOutput.exists() || (mode==ConvertEngine.VIDEO && pairedParts.isEmpty())) {
             openPreviewWhenReady = true;
             ui.removeCallbacks(autoPreview);
             pendingAutoPreview=false;
@@ -1011,7 +1011,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout footer = vertical();
         footer.addView(txt("LOCAL FIRST  •  БЕЗ ЗАГРУЗКИ НА СЕРВЕР  •  ARM64", 10, SECONDARY, true), boxLp(-1, -2, 8));
-        footer.addView(txt("Предпросмотр использует реальные фрагменты разных сцен. Прогноз объёма приблизительный и зависит от сложности остальных сцен. Для тяжёлых файлов обеспечьте свободное место под временную копию.", 11, SECONDARY, false));
+        footer.addView(txt("Предпросмотр использует один реальный центральный фрагмент (до 5 секунд). Размер всего файла приблизителен. ASC PRO проверяет качество при экспорте.", 11, SECONDARY, false));
         root.addView(footer, boxLp(-1, -2, 0));
         updateButtons();
     }
@@ -1386,20 +1386,13 @@ public final class MainActivity extends Activity {
         }
         if (!previewParts.isEmpty() && previewSettings!=null) {
             if(previewUnverified){
-                if(mode==ConvertEngine.VIDEO && previewSettings.quality==SmartCompression.QUALITY){
-                    estimateBox.addView(txt("ASC PRO · ВЕРХНЯЯ ГРАНИЦА РАЗМЕРА",11,SECONDARY,true),boxLp(-1,-2,6));
-                    estimateBox.addView(txt(original>0?"≤ "+ConvertEngine.humanBytes(original):"Размер исходника неизвестен",23,BLUE,true),boxLp(-1,-2,5));
-                    estimateBox.addView(txt(previewSourceOnly?"Некоторые сцены показывают исходник с обеих сторон: сравнение не удалось. Размер не подтверждён.":"Некоторые сцены не подтвердили качество. Предпросмотр ориентировочный; при экспорте программа проверит видео целиком и сохранит исходник, если меньший вариант не пройдёт контроль.",12,SECONDARY,false));
-                }else{
-                    estimateBox.addView(txt("Демонстрационный предпросмотр",13,BLUE,true),boxLp(-1,-2,6));
-                    estimateBox.addView(txt("Не все сцены прошли контроль ASC PRO. Размер не прогнозируется по этим фрагментам; при экспорте качество проверяется отдельно.",12,SECONDARY,false));
-                }
+                estimateBox.addView(txt("Качество фрагмента не подтверждено. Прогноз недоступен.",13,BLUE,true),boxLp(-1,-2,6));
                 return;
             }
             long bytes;
             String tag;
             if (mode==ConvertEngine.IMAGE) {
-                if(queue.size()==1) {bytes=sampleSize;tag=previewSettings.quality==SmartCompression.QUALITY?"Проверенный быстрый образец · итог может быть меньше":"Точный размер результата";}
+                if(queue.size()==1) {bytes=sampleSize;tag=previewSettings.quality==SmartCompression.QUALITY?"Реальный проверенный результат":"Точный размер результата";}
                 else {
                     long sourceBytes=queue.get(selected).size;
                     if(sourceBytes>0 && original>0 && sampleSize>0){
@@ -1413,7 +1406,7 @@ public final class MainActivity extends Activity {
             } else if(queue.size()>1) {bytes=fastEstimatedBytes;tag="Оценка всей очереди";
             } else if (previewDurationMs>0 && previewSampledMs>0) {
                 bytes=(long)(sampleSize*Math.max(1.0,previewDurationMs/(double)previewSampledMs));
-                tag="Оценка по "+previewParts.size()+" сценам";
+                tag="Оценка по реальному центральному фрагменту";
                 if(mode==ConvertEngine.VIDEO && previewSettings.quality==SmartCompression.QUALITY && original>0 && bytes>original){
                     bytes=original;tag="ASC PRO · верхняя граница (исходный объём)";
                 }
@@ -1444,7 +1437,7 @@ public final class MainActivity extends Activity {
         estimateBox.addView(txt(smart?"ASC PRO · ВЕРХНЯЯ ГРАНИЦА РАЗМЕРА":"БЫСТРЫЙ ПРОГНОЗ · БЕЗ ПЕРЕКОДИРОВАНИЯ",10,SECONDARY,true),boxLp(-1,-2,5));
         estimateAmountLabel=txt(fastEstimatedBytes>0?(smart?"≤ ":"≈ ")+ConvertEngine.humanBytes(fastEstimatedBytes):"Определяем параметры…",21,BLUE,true);
         estimateBox.addView(estimateAmountLabel,boxLp(-1,-2,5));
-        estimateBox.addView(txt(smart?"До проверки образца точная экономия неизвестна.":"Предварительно по параметрам. Прогноз уточнится по реальным сценам.",11,SECONDARY,false));
+        estimateBox.addView(txt(smart?"До проверки образца точная экономия неизвестна.":"Предварительно по параметрам. Прогноз уточнится по центральному фрагменту.",11,SECONDARY,false));
         updateEstimateAnimation();
     }
     private void updateEstimateAnimation() {
@@ -1453,7 +1446,7 @@ public final class MainActivity extends Activity {
         boolean active=state.running && !state.exporting && !pendingAutoPreview &&
                 !queue.isEmpty() && queue.get(selected).uri.toString().equals(state.sourceKey);
         if (active && state.previewUnverified) {
-            estimatePhaseLabel.setText("Проверяем качество следующих сцен");
+            estimatePhaseLabel.setText("Проверяем качество фрагмента");
             if(mode==ConvertEngine.VIDEO && savedQuality[mode]==SmartCompression.QUALITY){
                 long original=ConvertEngine.totalSourceBytes(queue);
                 estimateHintLabel.setText("Пока используем верхнюю границу размера");
@@ -1471,7 +1464,7 @@ public final class MainActivity extends Activity {
                 estimateAmountLabel.setText("≈ " + ConvertEngine.humanBytes(prediction));
                 estimateAmountLabel.setTextColor(GREEN);
             }
-            estimatePhaseLabel.setText("Уточняем по сценам · "+state.earlySampleCount+"/"+
+            estimatePhaseLabel.setText("Обработка фрагмента · "+state.earlySampleCount+"/"+
                     Math.max(1,state.earlySampleTotal));
             estimateHintLabel.setText("Реальная выборка · "+state.fileProgress+"% подготовлено");
         } else if (active) {
@@ -1554,7 +1547,7 @@ public final class MainActivity extends Activity {
         player.setOnPreparedListener(mp -> {
             if (player != activeVideo) return;
             long duration = Math.max(0, mp.getDuration());
-            final List<Long> positions = ConvertEngine.previewStarts(duration, 1200);
+            final List<Long> positions = ConvertEngine.previewStarts(duration, 5000);
             final int[] next = {0};
             final Runnable[] advance = new Runnable[1];
             advance[0] = () -> {
@@ -1566,7 +1559,7 @@ public final class MainActivity extends Activity {
                 player.seekTo((int) Math.min(Integer.MAX_VALUE, start));
                 player.start();
                 playbackAdvance = advance[0];
-                ui.postDelayed(advance[0], Math.min(2500, duration > 0 ? Math.max(250, duration - start) : 2500));
+                ui.postDelayed(advance[0], Math.min(5000, duration > 0 ? Math.max(1, duration - start) : 5000));
             };
             advance[0].run();
         });
@@ -1615,7 +1608,7 @@ public final class MainActivity extends Activity {
                 player.setOnPreparedListener(mp -> {
                     if (mp != audioPlayer) return;
                     long duration = Math.max(0, mp.getDuration());
-                    List<Long> positions = ConvertEngine.previewStarts(duration, 1500);
+                    List<Long> positions = ConvertEngine.previewStarts(duration, 5000);
                     final int[] next = {0};
                     final Runnable[] advance = new Runnable[1];
                     advance[0] = () -> {
@@ -1627,7 +1620,7 @@ public final class MainActivity extends Activity {
                         player.seekTo((int) Math.min(Integer.MAX_VALUE, start));
                         player.start();
                         playbackAdvance = advance[0];
-                        ui.postDelayed(advance[0], Math.min(2500, duration > 0 ? Math.max(250, duration - start) : 2500));
+                        ui.postDelayed(advance[0], Math.min(5000, duration > 0 ? Math.max(1, duration - start) : 5000));
                     };
                     advance[0].run();
                 });
@@ -1749,7 +1742,7 @@ public final class MainActivity extends Activity {
             busy = true;
             if (progressBar != null) progressBar.setProgress(0);
             setStatus(exporting ? "Запущена фоновая конвертация. Можно свернуть приложение." :
-                    "Начинается выборочный предпросмотр из разных частей файла…", false);
+                    "Готовим реальный фрагмент из середины файла…", false);
             updateButtons();
         } catch (Throwable ex) {
             launchDeadline=0;busy = false;

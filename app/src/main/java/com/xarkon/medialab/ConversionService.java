@@ -161,7 +161,7 @@ public final class ConversionService extends Service {
         state.earlySampleTotal=0;
         state.previewUnverified=false;
         state.previewSourceOnly=false;
-        state.fullPreview=request.getBooleanExtra("fullPreview",false)||state.quality!=SmartCompression.QUALITY;
+        state.fullPreview=true;
         ArrayList<Uri> requestUris = request.getParcelableArrayListExtra("uris");
         state.sourceKey = requestUris != null && !requestUris.isEmpty() ?
                 requestUris.get(0).toString() : "";
@@ -199,7 +199,7 @@ public final class ConversionService extends Service {
                 request.getIntExtra("resolution", 0), request.getIntExtra("bitrate", 2),
                 request.getIntExtra("performance", 1));
         boolean exporting = request.getBooleanExtra("export", false);
-        boolean fullPreview=request.getBooleanExtra("fullPreview",false)||cfg.quality!=SmartCompression.QUALITY;
+        boolean fullPreview=true;
         state.fullPreview=fullPreview;
         if(cfg.performance==3)try{android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_MORE_FAVORABLE);}catch(Exception ignored){}
         ArrayList<Uri> uris = request.getParcelableArrayListExtra("uris");
@@ -279,6 +279,9 @@ public final class ConversionService extends Service {
                     ConvertEngine.MediaInfo info = itemCfg.mode==ConvertEngine.IMAGE?new ConvertEngine.MediaInfo():direct!=null?ConvertEngine.info(this,src.uri):ConvertEngine.info(input);
                     if(direct!=null&&info.durationMs<=0)info=ConvertEngine.info(input);
                     durationMs = info.durationMs;
+                    long modified=ConvertEngine.modified(this,src.uri);
+                    if(modified<=0&&direct!=null)modified=direct.file.lastModified();
+                    String sourceKey=modified>0&&src.size>0?src.uri+"|"+src.size+"|"+modified+"|"+itemCfg.mode+"|"+itemCfg.performance:null;
                     if (exporting || itemCfg.mode == ConvertEngine.IMAGE) {
                         segmentsCount = files.size(); segmentIndex = n;
                         activeClipMs = info.durationMs;
@@ -289,7 +292,7 @@ public final class ConversionService extends Service {
                             boolean keptOriginal=false;
                             if(itemCfg.quality==SmartCompression.QUALITY){
                                 output.delete(); output=null;
-                                SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,!exporting,cancellation::get,msg->markFile(msg,10));
+                                SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,!exporting,sourceKey,cancellation::get,msg->markFile(msg,10));
                                 output=result.file;actualFormat=result.format;keptOriginal=result.original;
                             } else {
                             boolean nativeImage = ConvertEngine.convertNativeImage(input, output, itemCfg, cancellation::get);
@@ -315,9 +318,9 @@ public final class ConversionService extends Service {
                             }
                         } finally { if (output != null && !output.equals(input)) output.delete(); }
                     } else {
-                        final long clipMs = itemCfg.mode == ConvertEngine.VIDEO ? 1200 : 1500;
+                        final long clipMs = 5000;
                         List<Long> positions = ConvertEngine.previewStarts(info.durationMs, clipMs);
-                        if(!fullPreview&&positions.size()>1)positions=java.util.Collections.singletonList(positions.get(positions.size()/2));
+                        if(info.durationMs<=0)throw new java.io.IOException("Не удалось определить длительность для центрального фрагмента");
                         segmentsCount = positions.size();
                         state.earlySampleTotal=positions.size();
                         state.durationMs=info.durationMs;
@@ -325,7 +328,7 @@ public final class ConversionService extends Service {
                         for (int p = 0; p < positions.size() && !cancellation.get(); p++) {
                             segmentIndex = p;
                             long start = positions.get(p);
-                            long length = info.durationMs > 0 ? Math.min(clipMs, Math.max(250, info.durationMs - start)) : clipMs;
+                            long length = info.durationMs > 0 ? Math.min(clipMs, Math.max(1, info.durationMs - start)) : clipMs;
                             activeClipMs = length;
                             markFile("Предпросмотр: участок " + (p+1) + "/" + positions.size(),
                                     8 + 83 * p / Math.max(1, positions.size()));
@@ -333,9 +336,9 @@ public final class ConversionService extends Service {
                             try {
                                 if(itemCfg.quality==SmartCompression.QUALITY){
                                     output.delete();output=null;
-                                    SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,start,length,true,cancellation::get,msg->markFile(msg,10));
+                                    SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,start,length,true,sourceKey,cancellation::get,msg->markFile(msg,10));
                                     output=result.file;
-                                    if(!result.verified)state.previewUnverified=true;
+                                    if(!result.verified)throw new java.io.IOException("ASC PRO: результат не прошёл контроль качества");
                                 }else{
                                     FFmpegSession session = ConvertEngine.convert(input, output, itemCfg, info, start, length);
                                     validate(session, output);
@@ -359,13 +362,7 @@ public final class ConversionService extends Service {
                                         markFile("Синхронизация: участок " + (p+1) + "/" + positions.size(),
                                                 8 + 83 * (p + 1) / Math.max(1, positions.size()));
                                         FFmpegSession match = ConvertEngine.comparisonSample(input, output, paired, start, length, info.height>info.width);
-                                        if(match==null||!ReturnCode.isSuccess(match.getReturnCode())||paired.length()==0){
-                                            if(cancellation.get())break;
-                                            // Source-only comparison is honest fallback, not evidence of compression.
-                                            match=ConvertEngine.previewPair(input,output,paired,start,length,info.height>info.width,true);
-                                            state.previewUnverified=true;
-                                            state.previewSourceOnly=true;
-                                        }
+                                        // Never substitute the original for the actual encoded sample.
                                         validate(match, paired);
                                         if(cancellation.get())break;
                                         comparisons.add(paired);
@@ -424,7 +421,7 @@ public final class ConversionService extends Service {
                 mark("Завершено: сохранено "+saved+" из "+files.size()+
                      ". Ошибок: "+failed+". Первая: "+firstFileError,100,true);
             else if (exporting) mark("Готово. Сохранено файлов: " + saved, 100, false);
-            else mark(state.previewUnverified?"Демонстрационный предпросмотр: качество ASC PRO не подтверждено":"Выборка готова: " + state.parts.size() + " участков", 100, false);
+            else mark("Реальный предпросмотр готов",100,false);
             if (failure == null && !cancellation.get()) state.fileProgress = 100;
             // Serialize lifecycle completion with onStartCommand on the main thread.
             // Publish idle only after stopping the old foreground session.

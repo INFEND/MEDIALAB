@@ -339,17 +339,8 @@ final class ConvertEngine {
         return inf;
     }
     /** Preview from the interior of the file, avoiding credits/intro and outro. */
-    static List<Long> previewStarts(long durationMs, long clipMs) {
-        ArrayList<Long> positions = new ArrayList<>();
-        if (durationMs<=0 || durationMs<=clipMs) { positions.add(0L);return positions; }
-        double[] points={.15,.30,.50,.70,.80};
-        long maxStart=Math.max(0,durationMs-clipMs);
-        for(double ratio:points){
-            long next=Math.min(maxStart,Math.max(0,Math.round(durationMs*ratio-clipMs/2.0)));
-            if(positions.isEmpty() || next>=positions.get(positions.size()-1)+clipMs)positions.add(next);
-        }
-        if(positions.isEmpty())positions.add(Math.min(maxStart,durationMs/2));
-        return positions;
+    static List<Long> previewStarts(long durationMs,long clipMs){
+        return java.util.Collections.singletonList(Math.max(0,(durationMs-Math.min(durationMs,clipMs))/2));
     }
 
     private static long parseLong(String v) {

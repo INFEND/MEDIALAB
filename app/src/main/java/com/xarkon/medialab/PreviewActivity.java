@@ -100,7 +100,7 @@ public final class PreviewActivity extends Activity {
         } else {
             TextView info=new TextView(this);info.setGravity(Gravity.CENTER);
             info.setTextColor(Color.WHITE);info.setTextSize(18);
-            info.setText("Аудиопредпросмотр\nВыбранные участки файла");
+            info.setText("Аудиопредпросмотр\n5 секунд из середины файла");
             stage.addView(info,new FrameLayout.LayoutParams(-1,-1));
             playPart(0);
         }
@@ -168,7 +168,7 @@ public final class PreviewActivity extends Activity {
         File f=new File(sequence.get(index));
         if(!f.exists()||f.length()<1){playPart(index+1);return;}
         currentPart=index;
-        status.setText("Сцена "+(index+1)+" / "+sequence.size()+(previewSourceOnly?" • Возможен показ исходника с обеих сторон":previewUnverified?" • Демо, качество не проверено":" • До / после"));
+        status.setText("Центральный фрагмент · До / после");
         toggle.setText("Пауза");
         try {
             MediaPlayer next=new MediaPlayer();player=next;
