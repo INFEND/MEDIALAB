@@ -188,7 +188,7 @@ final class SmartCompression {
         if(probeLength<=0)return null;
         long bitrate=inf.durationMs>0?Math.max(100000,Math.min(100000000,(long)(in.length()*8000.0/inf.durationMs*.80))):4000000;
         for(String codec:codecs){
-            int[] steps=video?("hevc_mediacodec".equals(codec)?new int[]{0}:new int[]{20,16}):
+            int[] steps=video?("hevc_mediacodec".equals(codec)?new int[]{0}:new int[]{20,16,12,8}):
                     "flac".equals(codec)?new int[]{5}:new int[]{192,320};
             for(int q:steps){
                 check(c);
@@ -225,6 +225,8 @@ final class SmartCompression {
             ArrayList<String> a=new ArrayList<>(Arrays.asList("-threads",n,"-filter_threads",n,"-filter_complex_threads",n));
             seek(a,start);Collections.addAll(a,"-i",in.getAbsolutePath());duration(a,length);
             if(video){
+                // Preserve original frame cadence; Matroska rounds timestamps to milliseconds.
+                Collections.addAll(a,"-fps_mode:v:0","passthrough");
                 if(length>0)Collections.addAll(a,"-map","0:v:0","-map","0:a?");
                 else Collections.addAll(a,"-map","0");
                 Collections.addAll(a,"-c","copy","-c:v:0",codec);
@@ -253,14 +255,14 @@ final class SmartCompression {
         try{
             String n=String.valueOf(ConvertEngine.threads(performance));
             ArrayList<String> a=new ArrayList<>(Arrays.asList("-filter_complex_threads",n,"-threads",n));seek(a,start);Collections.addAll(a,"-i",in.getAbsolutePath(),"-threads",n,"-i",out.getAbsolutePath());
-            Collections.addAll(a,"-filter_complex","[0:v:0]setpts=PTS-STARTPTS[x];[1:v:0]setpts=PTS-STARTPTS[y];[x][y]ssim=shortest=1:stats_file="+stats.getAbsolutePath(),
-                    "-an");duration(a,length);Collections.addAll(a,"-f","null","-");
+            Collections.addAll(a,"-filter_complex","[0:v:0]settb=AVTB,setpts=PTS-STARTPTS[x];[1:v:0]settb=AVTB,setpts=PTS-STARTPTS[y];[x][y]ssim=shortest=1:repeatlast=0:ts_sync_mode=nearest:stats_file="+stats.getAbsolutePath()+"[quality]",
+                    "-map","[quality]","-an");duration(a,length);Collections.addAll(a,"-fps_mode:v","passthrough","-f","null","-");
             if(exec(c,a.toArray(new String[0]))==null || !stats.isFile())return false;
             Pattern p=Pattern.compile("Y:([0-9.]+).*?All:([0-9.]+)");double sum=0;long count=0;
             try(BufferedReader r=new BufferedReader(new FileReader(stats))){
                 String line;while((line=r.readLine())!=null){check(c);Matcher m=p.matcher(line);
                     if(!m.find())return false;double y=Double.parseDouble(m.group(1)),all=Double.parseDouble(m.group(2));
-                    if(y<.94 || all<.93)return false;sum+=y;count++;
+                    if(!Double.isFinite(y)||!Double.isFinite(all)||y<.94 || all<.93)return false;sum+=y;count++;
                 }
             }
             return count>0 && sum/count>=.985;

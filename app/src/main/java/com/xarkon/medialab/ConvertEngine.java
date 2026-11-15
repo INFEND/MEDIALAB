@@ -484,7 +484,7 @@ final class ConvertEngine {
         // Portrait and landscape both keep the source's display orientation.
         // One half is at most 768x432, or 432x768 for portrait.
         String size = portrait ? "432:768" : "768:432";
-        String common = "fps=24,scale="+size+":force_original_aspect_ratio=decrease," +
+        String common = "setpts=PTS-STARTPTS,fps=24:start_time=0,scale="+size+":force_original_aspect_ratio=decrease," +
                 "pad="+size+":(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=N/(24*TB)";
         String graph = "[0:v:0]" + common + "[left];[1:v:0]" + common +
                 "[right];[left][right]hstack=inputs=2:shortest=1[paired]";

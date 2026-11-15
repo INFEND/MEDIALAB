@@ -1357,8 +1357,14 @@ public final class MainActivity extends Activity {
         }
         if (!previewParts.isEmpty() && previewSettings!=null) {
             if(previewUnverified){
-                estimateBox.addView(txt("Демонстрационный предпросмотр",13,BLUE,true),boxLp(-1,-2,6));
-                estimateBox.addView(txt("Не все сцены прошли контроль ASC PRO. Размер не прогнозируется по этим фрагментам; при экспорте качество проверяется отдельно.",12,SECONDARY,false));
+                if(mode==ConvertEngine.VIDEO && previewSettings.quality==SmartCompression.QUALITY){
+                    estimateBox.addView(txt("ASC PRO · ВЕРХНЯЯ ГРАНИЦА РАЗМЕРА",11,SECONDARY,true),boxLp(-1,-2,6));
+                    estimateBox.addView(txt(original>0?"≤ "+ConvertEngine.humanBytes(original):"Размер исходника неизвестен",23,BLUE,true),boxLp(-1,-2,5));
+                    estimateBox.addView(txt("Некоторые сцены не подтвердили качество. Предпросмотр ориентировочный; при экспорте программа проверит видео целиком и сохранит исходник, если меньший вариант не пройдёт контроль.",12,SECONDARY,false));
+                }else{
+                    estimateBox.addView(txt("Демонстрационный предпросмотр",13,BLUE,true),boxLp(-1,-2,6));
+                    estimateBox.addView(txt("Не все сцены прошли контроль ASC PRO. Размер не прогнозируется по этим фрагментам; при экспорте качество проверяется отдельно.",12,SECONDARY,false));
+                }
                 return;
             }
             long bytes;
@@ -1379,6 +1385,9 @@ public final class MainActivity extends Activity {
             } else if (previewDurationMs>0 && previewSampledMs>0) {
                 bytes=(long)(sampleSize*Math.max(1.0,previewDurationMs/(double)previewSampledMs));
                 tag="Оценка по "+previewParts.size()+" сценам";
+                if(mode==ConvertEngine.VIDEO && previewSettings.quality==SmartCompression.QUALITY && original>0 && bytes>original){
+                    bytes=original;tag="ASC PRO · верхняя граница (исходный объём)";
+                }
             } else {bytes=fastEstimatedBytes;tag="Предварительный прогноз";}
             estimateBox.addView(txt(tag,11,SECONDARY,true),boxLp(-1,-2,4));
             estimateBox.addView(txt(ConvertEngine.humanBytes(bytes),23,GREEN,true),boxLp(-1,-2,5));
@@ -1415,9 +1424,15 @@ public final class MainActivity extends Activity {
         boolean active=state.running && !state.exporting && !pendingAutoPreview &&
                 !queue.isEmpty() && queue.get(selected).uri.toString().equals(state.sourceKey);
         if (active && state.previewUnverified) {
-            estimatePhaseLabel.setText("Готовим демонстрационный предпросмотр");
-            estimateHintLabel.setText("Контроль ASC PRO не пройден; прогноз недоступен");
-            if(estimateAmountLabel!=null){estimateAmountLabel.setText("Не подтверждён");estimateAmountLabel.setTextColor(BLUE);}
+            estimatePhaseLabel.setText("Проверяем качество следующих сцен");
+            if(mode==ConvertEngine.VIDEO && savedQuality[mode]==SmartCompression.QUALITY){
+                long original=ConvertEngine.totalSourceBytes(queue);
+                estimateHintLabel.setText("Пока используем верхнюю границу размера");
+                if(estimateAmountLabel!=null){estimateAmountLabel.setText(original>0?"≤ "+ConvertEngine.humanBytes(original):"Размер неизвестен");estimateAmountLabel.setTextColor(BLUE);}
+            }else{
+                estimateHintLabel.setText("Контроль ASC PRO не пройден; прогноз недоступен");
+                if(estimateAmountLabel!=null){estimateAmountLabel.setText("Не подтверждён");estimateAmountLabel.setTextColor(BLUE);}
+            }
         } else if (active && state.earlySampleDurationMs > 0 && state.durationMs > 0 &&
                 state.earlySampleBytes > 0) {
             // First real encoded clip already gives useful new information.
