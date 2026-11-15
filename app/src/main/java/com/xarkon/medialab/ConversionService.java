@@ -64,6 +64,7 @@ public final class ConversionService extends Service {
         volatile long earlySampleDurationMs;
         volatile int earlySampleCount;
         volatile int earlySampleTotal;
+        volatile boolean previewUnverified;
         volatile String sourceKey = "";
 
         volatile String format = "mp4";
@@ -146,6 +147,7 @@ public final class ConversionService extends Service {
         state.earlySampleDurationMs=0;
         state.earlySampleCount=0;
         state.earlySampleTotal=0;
+        state.previewUnverified=false;
         ArrayList<Uri> requestUris = request.getParcelableArrayListExtra("uris");
         state.sourceKey = requestUris != null && !requestUris.isEmpty() ?
                 requestUris.get(0).toString() : "";
@@ -257,7 +259,7 @@ public final class ConversionService extends Service {
                             boolean keptOriginal=false;
                             if(itemCfg.quality==SmartCompression.QUALITY){
                                 output.delete(); output=null;
-                                SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,cancellation::get,msg->markFile(msg,10));
+                                SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,!exporting,cancellation::get,msg->markFile(msg,10));
                                 output=result.file;actualFormat=result.format;keptOriginal=result.original;
                             } else {
                             boolean nativeImage = ConvertEngine.convertNativeImage(input, output, itemCfg, cancellation::get);
@@ -299,8 +301,9 @@ public final class ConversionService extends Service {
                             try {
                                 if(itemCfg.quality==SmartCompression.QUALITY){
                                     output.delete();output=null;
-                                    SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,start,length,cancellation::get,msg->markFile(msg,10));
+                                    SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,start,length,true,cancellation::get,msg->markFile(msg,10));
                                     output=result.file;
+                                    if(!result.verified)state.previewUnverified=true;
                                 }else{
                                     FFmpegSession session = ConvertEngine.convert(input, output, itemCfg, info, start, length);
                                     validate(session, output);
@@ -372,7 +375,7 @@ public final class ConversionService extends Service {
                 mark("Завершено: сохранено "+saved+" из "+files.size()+
                      ". Ошибок: "+failed+". Первая: "+firstFileError,100,true);
             else if (exporting) mark("Готово. Сохранено файлов: " + saved, 100, false);
-            else mark("Выборка готова: " + state.parts.size() + " участков", 100, false);
+            else mark(state.previewUnverified?"Демонстрационный предпросмотр: качество ASC PRO не подтверждено":"Выборка готова: " + state.parts.size() + " участков", 100, false);
             if (failure == null && !cancellation.get()) state.fileProgress = 100;
             state.running = false;
             state.revision++;

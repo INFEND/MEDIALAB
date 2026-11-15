@@ -19,24 +19,39 @@ final class SmartCompression {
     static final int QUALITY = 101;
     interface Status { void update(String message); }
     static final class Result {
-        final File file; final String format; final boolean original;
-        Result(File f,String x,boolean o){file=f;format=x;original=o;}
+        final File file; final String format; final boolean original; final boolean verified;
+        Result(File f,String x,boolean o){this(f,x,o,true);}
+        Result(File f,String x,boolean o,boolean v){file=f;format=x;original=o;verified=v;}
     }
     private static void check(ConvertEngine.Canceled c) throws IOException {
         if(c.canceled()) throw new IOException("Операция отменена");
     }
     private static String ext(File f){return ConvertEngine.extension(f.getName());}
     static Result run(Context ctx, File in, ConvertEngine.Config cfg, ConvertEngine.MediaInfo info,
-                      long start,long length,ConvertEngine.Canceled canceled,Status status) throws IOException {
+                      long start,long length,boolean preview,ConvertEngine.Canceled canceled,Status status) throws IOException {
         check(canceled);
         Result best=null;
-        if(cfg.mode==ConvertEngine.IMAGE) best=image(ctx,in,canceled,status);
+        if(cfg.mode==ConvertEngine.IMAGE) best=image(ctx,in,preview,canceled,status);
         else if(cfg.mode==ConvertEngine.VIDEO || cfg.mode==ConvertEngine.AUDIO || cfg.mode==ConvertEngine.EXTRACT)
-            best=av(ctx,in,cfg,info,start,length,canceled,status);
+            best=av(ctx,in,cfg,info,start,length,preview,canceled,status);
         if(canceled.canceled()){if(best!=null)best.file.delete();check(canceled);}
         // Never publish a bigger file in smart mode (except extraction, which is a different medium).
         if(best!=null && (length>0 || cfg.mode==ConvertEngine.EXTRACT || best.file.length()<in.length())) return best;
         if(best!=null) best.file.delete();
+        if(length>0 && preview){
+            // Demonstration only: never use it as an approved export or size measurement.
+            status.update("ASC PRO: проверенный вариант не найден, готовим демонстрационный образец");
+            String format=cfg.mode==ConvertEngine.VIDEO?"mp4":"m4a";
+            File demo=ConvertEngine.outputTemp(ctx,format);
+            try{
+                ConvertEngine.Config fallback=new ConvertEngine.Config(cfg.mode,format,95,0,3,cfg.performance);
+                FFmpegSession session=ConvertEngine.convert(in,demo,fallback,info,start,length);
+                check(canceled);
+                if(session==null||!ReturnCode.isSuccess(session.getReturnCode())||demo.length()==0)
+                    throw new IOException("ASC PRO: не удалось создать даже демонстрационный фрагмент");
+                Result result=new Result(demo,format,false,false);demo=null;return result;
+            }finally{if(demo!=null)demo.delete();}
+        }
         if(length>0 || cfg.mode==ConvertEngine.EXTRACT)
             throw new IOException("ASC PRO: не найден проверенный вариант для этого фрагмента или формата");
         status.update("ASC PRO: исходник уже оптимален или проверка качества не пройдена");
@@ -60,15 +75,17 @@ final class SmartCompression {
             d.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB));
         });
     }
-    private static Result image(Context ctx,File in,ConvertEngine.Canceled c,Status status) throws IOException {
+    private static Result image(Context ctx,File in,boolean preview,ConvertEngine.Canceled c,Status status) throws IOException {
         Bitmap a=null; Result best=null;
         try{
             a=bitmap(in);
             // Lossless candidate also protects alpha, text and line art.
-            String[] formats=a.hasAlpha()?new String[]{"webp","png"}:new String[]{"webp","jpg","png","avif"};
+            String[] formats=a.hasAlpha()?new String[]{"webp","png"}:preview?
+                    ("jpg".equals(ext(in))||"jpeg".equals(ext(in))?new String[]{"jpg","webp"}:new String[]{"webp","jpg"}):
+                    new String[]{"webp","jpg","png","avif"};
             for(String fmt:formats){
                 int[] qualities="png".equals(fmt)?new int[]{100}:a.hasAlpha()?new int[]{100}:
-                    new int[]{78,84,90,94,98,100};
+                    preview?new int[]{94,98}:new int[]{78,84,90,94,98,100};
                 for(int q:qualities){
                     check(c);
                     File out=ConvertEngine.outputTemp(ctx,fmt); Bitmap b=null;
@@ -80,7 +97,7 @@ final class SmartCompression {
                             File png=ConvertEngine.outputTemp(ctx,"png");
                             try{
                                 try(OutputStream stream=new FileOutputStream(png)){if(!a.compress(Bitmap.CompressFormat.PNG,100,stream))continue;}
-                                ok=exec(c,"-i",png.getAbsolutePath(),"-frames:v","1","-c:v","libaom-av1","-still-picture","1","-crf",String.valueOf(63-q*45/100),"-b:v","0",out.getAbsolutePath())!=null;
+                                ok=exec(c,"-i",png.getAbsolutePath(),"-frames:v","1","-c:v","libaom-av1","-still-picture","1","-cpu-used","6","-crf",String.valueOf(63-q*45/100),"-b:v","0",out.getAbsolutePath())!=null;
                             }finally{png.delete();}
                         } else {
                             Bitmap.CompressFormat codec="jpg".equals(fmt)?Bitmap.CompressFormat.JPEG:
@@ -94,6 +111,7 @@ final class SmartCompression {
                         if(!photoPass(a,b,c))continue;
                         if(best!=null)best.file.delete();
                         best=new Result(out,fmt,false);out=null;
+                        if(preview)return best; // first quality-approved native candidate
                         break; // first passing quality for this codec; compare codecs by bytes
                     }catch(IllegalArgumentException|IOException ex){check(c);}
                     finally{if(b!=null)b.recycle();if(out!=null)out.delete();}
@@ -139,7 +157,7 @@ final class SmartCompression {
     private static String sec(long ms){return String.format(Locale.US,"%.3f",ms/1000.0);}
     private static void duration(List<String> a,long length){if(length>0)Collections.addAll(a,"-t",sec(length));}
     private static Result av(Context ctx,File in,ConvertEngine.Config cfg,ConvertEngine.MediaInfo inf,long start,long length,
-                             ConvertEngine.Canceled c,Status status)throws IOException{
+                             boolean preview,ConvertEngine.Canceled c,Status status)throws IOException{
         boolean video=cfg.mode==ConvertEngine.VIDEO;
         // Preserve additional streams/cover art rather than silently discard them in audio compression.
         MediaInformation mi=FFprobeKit.getMediaInformation(in.getAbsolutePath()).getMediaInformation();
@@ -152,12 +170,12 @@ final class SmartCompression {
         if(video && (videos!=1 || props.contains("smpte2084") || props.contains("arib-std-b67") || props.contains("dovi")))return null;
         if(!video && (audios!=1 || (cfg.mode==ConvertEngine.AUDIO && mi.getStreams().size()!=1)))return null;
         // VP9 / HEVC are probed by the encoder itself. No assumptions about optional native codecs.
-        String[] codecs=video?new String[]{"libx265","libvpx-vp9"}:new String[]{"libopus","aac","flac"};
+        String[] codecs=video?new String[]{"libx265","libvpx-vp9","libx264"}:new String[]{"libopus","aac","flac"};
         Result best=null;
         try{
             for(String codec:codecs){
                 String fmt=video?"mkv":"libopus".equals(codec)?"opus":"aac".equals(codec)?"m4a":"flac";
-                int[] steps=video?new int[]{28,24,20,16}: "flac".equals(codec)?new int[]{8}:new int[]{160,192,256,320};
+                int[] steps=video?(preview?new int[]{20,16}:new int[]{28,24,20,16}): "flac".equals(codec)?new int[]{8}:new int[]{160,192,256,320};
                 for(int q:steps){
                     check(c);File out=ConvertEngine.outputTemp(ctx,fmt);
                     try{
@@ -167,8 +185,9 @@ final class SmartCompression {
                             if(length>0)Collections.addAll(a,"-map","0:v:0","-map","0:a?");
                             else Collections.addAll(a,"-map","0");
                             Collections.addAll(a,"-c","copy","-c:v:0",codec,"-crf",String.valueOf(q));
-                            if("libx265".equals(codec))Collections.addAll(a,"-preset","fast","-x265-params","log-level=error");
-                            else Collections.addAll(a,"-b:v:0","0","-deadline","good","-cpu-used","4");
+                            if("libx265".equals(codec))Collections.addAll(a,"-preset",preview?"ultrafast":"fast","-x265-params","log-level=error");
+                            else if("libx264".equals(codec))Collections.addAll(a,"-preset",preview?"ultrafast":"fast");
+                            else Collections.addAll(a,"-b:v:0","0","-deadline","good","-cpu-used",preview?"6":"4");
                         }else{
                             Collections.addAll(a,"-map","0:a:0","-vn","-c:a",codec);
                             if("flac".equals(codec))Collections.addAll(a,"-compression_level","8");
@@ -179,7 +198,7 @@ final class SmartCompression {
                         if(length==0 && cfg.mode!=ConvertEngine.EXTRACT && out.length()>=in.length())continue;
                         if(best!=null && out.length()>=best.file.length())continue;
                         long target=length>0?length:inf.durationMs, actual=ConvertEngine.info(out).durationMs;
-                        if(target>0 && (actual<=0 || Math.abs(actual-target)>Math.max(120,target/100)))continue;
+                        if(target>0 && (actual<=0 || Math.abs(actual-target)>Math.max(length>0?350:120,target/100)))continue;
                         status.update("ASC PRO · "+codec+" · проверка "+(video?"кадров":"звука"));
                         boolean pass=video?videoPass(ctx,in,out,start,length,c):audioPass(in,out,start,length,c,"flac".equals(codec));
                         if(!pass)continue;

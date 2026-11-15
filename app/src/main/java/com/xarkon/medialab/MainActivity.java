@@ -84,6 +84,7 @@ public final class MainActivity extends Activity {
     private final Runnable pollJob = new Runnable() { @Override public void run() { pollState(); ui.postDelayed(this, 450); } };
     private long lastJobRevision = -1;
     private long previewSampledMs = 0;
+    private boolean previewUnverified=false;
     private int themeChoice = 0, accentChoice = 0;
     private int performanceChoice = 3;
     private boolean pendingAutoPreview = false;
@@ -537,6 +538,7 @@ public final class MainActivity extends Activity {
         Intent i = new Intent(this, PreviewActivity.class);
         i.putExtra("source", queue.get(selected).uri.toString());
         i.putExtra("mode", mode);
+        i.putExtra("previewUnverified",previewUnverified);
         i.putExtra("sourceName", queue.get(selected).name);
         ArrayList<String> paths = new ArrayList<>();
         for (File f : previewParts) if (f.exists()) paths.add(f.getAbsolutePath());
@@ -595,6 +597,7 @@ public final class MainActivity extends Activity {
                 previewSettings = previewParts.isEmpty() ? null : new ConvertEngine.Config(s.mode, s.format, s.quality, 0, 2, s.performance);
                 previewDurationMs = s.durationMs;
                 previewSampledMs = s.samplesMs;
+                previewUnverified = s.previewUnverified;
                 if (pendingAutoPreview) { previewParts.clear(); pairedParts.clear(); previewOutput = null; previewSettings = null; }
                 if (!queue.isEmpty() && estimateBox != null) renderPreviews();
                 if (!previewParts.isEmpty() && !pendingAutoPreview && openPreviewWhenReady) ui.post(this::openFullPreview);
@@ -1247,7 +1250,7 @@ public final class MainActivity extends Activity {
     private void clearPreview() {
         stopPlayback();
         previewParts.clear(); pairedParts.clear();
-        previewOutput = null; previewSettings = null; previewDurationMs = 0; previewSampledMs = 0;
+        previewOutput = null; previewSettings = null; previewDurationMs = 0; previewSampledMs = 0; previewUnverified=false;
         lastJobRevision = ConversionService.state.revision;
     }
     private void clearStaged() {
@@ -1276,15 +1279,20 @@ public final class MainActivity extends Activity {
                 previewParts.isEmpty() && !pendingAutoPreview) {
             estimateBox.addView(txt("Не удалось подготовить образец",13,0xffff9199,true),boxLp(-1,-2,6));
             estimateBox.addView(txt(ConversionService.state.status,11,SECONDARY,false),boxLp(-1,-2,7));
-            if (fastEstimatedBytes > 0) estimateBox.addView(txt("Предварительно ≈ "+
+            if (fastEstimatedBytes > 0) estimateBox.addView(txt((savedQuality[mode]==SmartCompression.QUALITY?"Верхняя граница ≤ ":"Предварительно ≈ ")+
                     ConvertEngine.humanBytes(fastEstimatedBytes),15,BLUE,true));
             return;
         }
         if (!previewParts.isEmpty() && previewSettings!=null) {
+            if(previewUnverified){
+                estimateBox.addView(txt("Демонстрационный предпросмотр",13,BLUE,true),boxLp(-1,-2,6));
+                estimateBox.addView(txt("Не все сцены прошли контроль ASC PRO. Размер не прогнозируется по этим фрагментам; при экспорте качество проверяется отдельно.",12,SECONDARY,false));
+                return;
+            }
             long bytes;
             String tag;
             if (mode==ConvertEngine.IMAGE) {
-                if(queue.size()==1) {bytes=sampleSize;tag="Точный размер результата";}
+                if(queue.size()==1) {bytes=sampleSize;tag=previewSettings.quality==SmartCompression.QUALITY?"Проверенный быстрый образец · итог может быть меньше":"Точный размер результата";}
                 else {
                     long sourceBytes=queue.get(selected).size;
                     if(sourceBytes>0 && original>0 && sampleSize>0){
@@ -1322,10 +1330,11 @@ public final class MainActivity extends Activity {
         text.addView(estimatePhaseLabel);text.addView(estimateHintLabel);
         estimateCard.addView(text,new LinearLayout.LayoutParams(0,-2,1));
         estimateBox.addView(estimateCard,boxLp(-1,-2,9));
-        estimateBox.addView(txt("БЫСТРЫЙ ПРОГНОЗ · БЕЗ ПЕРЕКОДИРОВАНИЯ",10,SECONDARY,true),boxLp(-1,-2,5));
-        estimateAmountLabel=txt(fastEstimatedBytes>0?"≈ "+ConvertEngine.humanBytes(fastEstimatedBytes):"Определяем параметры…",21,BLUE,true);
+        boolean smart=savedQuality[mode]==SmartCompression.QUALITY;
+        estimateBox.addView(txt(smart?"ASC PRO · ВЕРХНЯЯ ГРАНИЦА РАЗМЕРА":"БЫСТРЫЙ ПРОГНОЗ · БЕЗ ПЕРЕКОДИРОВАНИЯ",10,SECONDARY,true),boxLp(-1,-2,5));
+        estimateAmountLabel=txt(fastEstimatedBytes>0?(smart?"≤ ":"≈ ")+ConvertEngine.humanBytes(fastEstimatedBytes):"Определяем параметры…",21,BLUE,true);
         estimateBox.addView(estimateAmountLabel,boxLp(-1,-2,5));
-        estimateBox.addView(txt("Предварительно по параметрам. Прогноз уточнится по реальным сценам.",11,SECONDARY,false));
+        estimateBox.addView(txt(smart?"До проверки образца точная экономия неизвестна.":"Предварительно по параметрам. Прогноз уточнится по реальным сценам.",11,SECONDARY,false));
         updateEstimateAnimation();
     }
     private void updateEstimateAnimation() {
@@ -1333,7 +1342,11 @@ public final class MainActivity extends Activity {
         ConversionService.Snapshot state=ConversionService.state;
         boolean active=state.running && !state.exporting && !pendingAutoPreview &&
                 !queue.isEmpty() && queue.get(selected).uri.toString().equals(state.sourceKey);
-        if (active && state.earlySampleDurationMs > 0 && state.durationMs > 0 &&
+        if (active && state.previewUnverified) {
+            estimatePhaseLabel.setText("Готовим демонстрационный предпросмотр");
+            estimateHintLabel.setText("Контроль ASC PRO не пройден; прогноз недоступен");
+            if(estimateAmountLabel!=null){estimateAmountLabel.setText("Не подтверждён");estimateAmountLabel.setTextColor(BLUE);}
+        } else if (active && state.earlySampleDurationMs > 0 && state.durationMs > 0 &&
                 state.earlySampleBytes > 0) {
             // First real encoded clip already gives useful new information.
             long prediction=(long)(state.earlySampleBytes *

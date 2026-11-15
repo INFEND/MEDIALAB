@@ -188,7 +188,7 @@ final class ConvertEngine {
     // Cheap prediction. This is *not* called a measured file size.
     // Video: same target bitrate expression as the actual encoder.
     static long quickEstimate(Source source, Config cfg, MediaInfo info) {
-        if(cfg.quality==SmartCompression.QUALITY)return -1; // measured preview only
+        if(cfg.quality==SmartCompression.QUALITY)return cfg.mode!=EXTRACT&&source.size>0?source.size:-1; // conservative upper bound, not a prediction
         long original = Math.max(0, source.size);
         long duration = info == null ? 0 : info.durationMs;
         if (cfg.mode == VIDEO && duration > 0 && info.width > 0 && info.height > 0 && !"gif".equals(cfg.format)) {

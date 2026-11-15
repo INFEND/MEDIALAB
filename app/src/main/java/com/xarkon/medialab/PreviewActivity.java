@@ -39,7 +39,7 @@ public final class PreviewActivity extends Activity {
     private MediaPlayer player;
     private SyncedCompareView liveView;
     private BeforeAfterView imageView;
-    private boolean closed, pausedByUser;
+    private boolean closed, pausedByUser, previewUnverified;
     private volatile boolean ready;
     private int accent=0xff80a8ff;
     @Override public void onCreate(Bundle saved) {
@@ -52,6 +52,7 @@ public final class PreviewActivity extends Activity {
         String sourceValue=getIntent().getStringExtra("source");
         source=sourceValue==null?null:Uri.parse(sourceValue);
         mode=getIntent().getIntExtra("mode",ConvertEngine.VIDEO);
+        previewUnverified=getIntent().getBooleanExtra("previewUnverified",false);
         if(parts==null||parts.isEmpty()) {finish();return;}
         int[] accents=QrLook.COLORS;
         int color=getSharedPreferences("MainActivity",MODE_PRIVATE).getInt("accent",0);
@@ -166,7 +167,7 @@ public final class PreviewActivity extends Activity {
         File f=new File(sequence.get(index));
         if(!f.exists()||f.length()<1){playPart(index+1);return;}
         currentPart=index;
-        status.setText("Сцена "+(index+1)+" / "+sequence.size()+" • До / после");
+        status.setText("Сцена "+(index+1)+" / "+sequence.size()+(previewUnverified?" • Демо, качество не проверено":" • До / после"));
         toggle.setText("Пауза");
         try {
             MediaPlayer next=new MediaPlayer();player=next;
