@@ -235,6 +235,35 @@ final class ConvertEngine {
         String e = name.substring(dot + 1).toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
         return e.isEmpty() ? "bin" : (e.length() > 10 ? e.substring(0, 10) : e);
     }
+    /** Seekable local SAF documents can be read directly. Keep the descriptor open
+     * until every native/Java reader has finished. Never modify the original. */
+    static final class DirectInput implements java.io.Closeable {
+        final File file;
+        final android.os.ParcelFileDescriptor descriptor;
+        DirectInput(File f,android.os.ParcelFileDescriptor d){file=f;descriptor=d;}
+        @Override public void close(){file.delete();try{descriptor.close();}catch(IOException ignored){}}
+    }
+    static DirectInput openDirect(Context ctx,Source source){
+        android.os.ParcelFileDescriptor fd=null;
+        File link=null;
+        try{
+            fd=ctx.getContentResolver().openFileDescriptor(source.uri,"r");
+            if(fd==null)return null;
+            android.system.StructStat stat=android.system.Os.fstat(fd.getFileDescriptor());
+            if(!android.system.OsConstants.S_ISREG(stat.st_mode)||stat.st_size<=0||
+                    (source.size>0&&source.size!=stat.st_size))return null;
+            File dir=new File(ctx.getCacheDir(),"working");
+            if(!dir.isDirectory()&&!dir.mkdirs())return null;
+            link=new File(dir,"direct_"+System.nanoTime()+"."+extension(source.name));
+            android.system.Os.symlink("/proc/self/fd/"+fd.getFd(),link.getAbsolutePath());
+            try(FileInputStream test=new FileInputStream(link)){
+                if(test.getChannel().size()!=stat.st_size||test.read()<0)return null;
+                test.getChannel().position(0);
+            }
+            DirectInput result=new DirectInput(link,fd);link=null;fd=null;return result;
+        }catch(Exception ignored){return null;}
+        finally{if(link!=null)link.delete();if(fd!=null)try{fd.close();}catch(IOException ignored){}}
+    }
     static File stage(Context ctx, Source source, Canceled canceled) throws IOException {
         return stage(ctx, source, canceled, (current, total) -> {});
     }
@@ -253,15 +282,17 @@ final class ConvertEngine {
         try (InputStream in = ctx.getContentResolver().openInputStream(source.uri);
              OutputStream out = new FileOutputStream(result)) {
             if (in == null) throw new IOException("Провайдер файлов не открыл документ");
-            byte[] buffer = new byte[128 * 1024];
+            byte[] buffer = new byte[1024 * 1024];
             int read;
-            long copied = 0;
+            long copied = 0,lastReport=0;
             while ((read = in.read(buffer)) != -1) {
                 if (canceled.canceled()) throw new IOException("Операция отменена");
                 out.write(buffer, 0, read);
                 copied += read;
-                progress.update(copied, source.size);
+                long now=android.os.SystemClock.elapsedRealtime();
+                if(now-lastReport>=120){lastReport=now;progress.update(copied,source.size);}
             }
+            progress.update(copied,source.size);
         } catch (IOException ex) {
             result.delete();
             throw ex;
@@ -510,7 +541,7 @@ final class ConvertEngine {
         boolean success = false;
         try (InputStream in = new FileInputStream(result); OutputStream out = resolver.openOutputStream(target)) {
             if (out == null) throw new IOException("Не удалось открыть выходной документ");
-            byte[] buffer = new byte[128 * 1024];
+            byte[] buffer = new byte[1024 * 1024];
             int n;
             while ((n = in.read(buffer)) != -1) {
                 if (canceled.canceled()) throw new IOException("Операция отменена");

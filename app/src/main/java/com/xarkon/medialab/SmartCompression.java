@@ -55,6 +55,7 @@ final class SmartCompression {
         if(length>0 || cfg.mode==ConvertEngine.EXTRACT)
             throw new IOException("ASC PRO: не найден проверенный вариант для этого фрагмента или формата");
         status.update("ASC PRO: исходник уже оптимален или проверка качества не пройдена");
+        if(!preview)return new Result(in,ext(in),true); // caller owns source; no redundant temporary copy
         File copy=ConvertEngine.outputTemp(ctx,ext(in));
         try {
             try(InputStream a=new FileInputStream(in); OutputStream b=new FileOutputStream(copy)){
@@ -76,16 +77,17 @@ final class SmartCompression {
         });
     }
     private static Result image(Context ctx,File in,boolean preview,int performance,ConvertEngine.Canceled c,Status status) throws IOException {
-        Bitmap a=null; Result best=null;
+        Bitmap a=null; Result best=null; File avifInput=null;
         try{
             a=bitmap(in);
             // Lossless candidate also protects alpha, text and line art.
             String[] formats=a.hasAlpha()?new String[]{"webp","png"}:preview?
                     ("jpg".equals(ext(in))||"jpeg".equals(ext(in))?new String[]{"jpg","webp"}:new String[]{"webp","jpg"}):
-                    new String[]{"webp","jpg","png","avif"};
+                    performance==3 && ("jpg".equals(ext(in))||"jpeg".equals(ext(in)))?
+                    new String[]{"jpg","webp","avif","png"}:new String[]{"webp","jpg","avif","png"};
             for(String fmt:formats){
                 int[] qualities="png".equals(fmt)?new int[]{100}:a.hasAlpha()?new int[]{100}:
-                    preview?new int[]{94,98}:"avif".equals(fmt)?new int[]{94,98}:new int[]{84,94,98,100};
+                    preview?new int[]{94,98}:performance==3?("avif".equals(fmt)?new int[]{94,98}:new int[]{84,94,98}):"avif".equals(fmt)?new int[]{94,98}:new int[]{84,94,98,100};
                 for(int q:qualities){
                     check(c);
                     File out=ConvertEngine.outputTemp(ctx,fmt); Bitmap b=null;
@@ -94,11 +96,13 @@ final class SmartCompression {
                         boolean ok;
                         if("avif".equals(fmt)){
                             // The oriented bitmap is the reference; compare dimensions and pixels after decode.
-                            File png=ConvertEngine.outputTemp(ctx,"png");
-                            try{
-                                try(OutputStream stream=new FileOutputStream(png)){if(!a.compress(Bitmap.CompressFormat.PNG,100,stream))continue;}
-                                ok=exec(c,"-i",png.getAbsolutePath(),"-frames:v","1","-c:v","libaom-av1","-still-picture","1","-cpu-used","8","-threads",String.valueOf(ConvertEngine.threads(performance)),"-row-mt","1","-crf",String.valueOf(63-q*45/100),"-b:v","0",out.getAbsolutePath())!=null;
-                            }finally{png.delete();}
+                            if(avifInput==null){
+                                avifInput=ConvertEngine.outputTemp(ctx,"png");
+                                try(OutputStream stream=new FileOutputStream(avifInput)){
+                                    if(!a.compress(Bitmap.CompressFormat.PNG,100,stream))throw new IOException("PNG intermediate failed");
+                                }
+                            }
+                            ok=exec(c,"-i",avifInput.getAbsolutePath(),"-frames:v","1","-c:v","libaom-av1","-still-picture","1","-cpu-used","8","-threads",String.valueOf(ConvertEngine.threads(performance)),"-row-mt","1","-crf",String.valueOf(63-q*45/100),"-b:v","0",out.getAbsolutePath())!=null;
                         } else {
                             Bitmap.CompressFormat codec="jpg".equals(fmt)?Bitmap.CompressFormat.JPEG:
                                 "png".equals(fmt)?Bitmap.CompressFormat.PNG:
@@ -111,7 +115,7 @@ final class SmartCompression {
                         if(!photoPass(a,b,performance,c))continue;
                         if(best!=null)best.file.delete();
                         best=new Result(out,fmt,false);out=null;
-                        if(preview)return best; // first quality-approved native candidate
+                        if(preview || (performance==3 && best.file.length()<=in.length()*0.75))return best; // fast exit only after full quality gate and substantial saving
                         break; // first passing quality for this codec; compare codecs by bytes
                     }catch(IllegalArgumentException|IOException ex){check(c);}
                     finally{if(b!=null)b.recycle();if(out!=null)out.delete();}
@@ -120,7 +124,7 @@ final class SmartCompression {
             return best;
         }catch(IllegalArgumentException|OutOfMemoryError ex){return best;}
         catch(IOException ex){if(c.canceled()){if(best!=null)best.file.delete();throw ex;}return best;}
-        finally{if(a!=null)a.recycle();}
+        finally{if(avifInput!=null)avifInput.delete();if(a!=null)a.recycle();}
     }
     // Full-resolution, non-overlapping 32x32 local SSIM, Y/Cb/Cr error and exact alpha.
     private static final class PhotoScore { double sum,chroma;long pixels,bad; }
@@ -137,12 +141,16 @@ final class SmartCompression {
     }
     private static PhotoScore photoStripe(Bitmap a,Bitmap b,ConvertEngine.Canceled c,int index,int workers){
         int w=a.getWidth(),h=a.getHeight();
-        int[] x=new int[1024],y=new int[1024];double sum=0,chroma=0;long pixels=0,bad=0;
-        for(int j=index*32;j<h;j+=workers*32)for(int i=0;i<w;i+=32){
-            if(c.canceled())return null;int tw=Math.min(32,w-i),th=Math.min(32,h-j),n=tw*th;
-            a.getPixels(x,0,tw,i,j,tw,th);b.getPixels(y,0,tw,i,j,tw,th);
+        int[] x=new int[w*32],y=new int[w*32];double sum=0,chroma=0;long pixels=0,bad=0;
+        for(int j=index*32;j<h;j+=workers*32){
+            if(c.canceled())return null;
+            int th=Math.min(32,h-j);
+            a.getPixels(x,0,w,0,j,w,th);b.getPixels(y,0,w,0,j,w,th);
+            for(int i=0;i<w;i+=32){
+            if(c.canceled())return null;int tw=Math.min(32,w-i),n=tw*th;
             double sa=0,sb=0,saa=0,sbb=0,sab=0;
-            for(int k=0;k<n;k++){
+            for(int row=0;row<th;row++)for(int col=0;col<tw;col++){
+                int k=row*w+i+col;
                 if((x[k]>>>24)!=(y[k]>>>24))return null;
                 if((x[k]>>>24)==0)continue;
                 int ar=(x[k]>>16)&255,ag=(x[k]>>8)&255,ab=x[k]&255;
@@ -156,6 +164,7 @@ final class SmartCompression {
             double score=((2*m*v+6.5025)*(2*cov+58.5225))/((m*m+v*v+6.5025)*(va+vb+58.5225));
             if(score<.965)return null;
             sum+=score*n;pixels+=n;
+            }
         }
         PhotoScore r=new PhotoScore();r.sum=sum;r.chroma=chroma;r.pixels=pixels;r.bad=bad;return r;
     }
@@ -182,13 +191,13 @@ final class SmartCompression {
         if(video && (videos!=1 || props.contains("smpte2084") || props.contains("arib-std-b67") || props.contains("dovi")))return null;
         if(!video && (audios!=1 || (cfg.mode==ConvertEngine.AUDIO && mi.getStreams().size()!=1)))return null;
         // Probe short scenes first; do not repeatedly encode the full input.
-        String[] codecs=video?new String[]{"hevc_mediacodec","libx265","libx264","libvpx-vp9"}:new String[]{"libopus","aac","flac"};
+        String[] codecs=video?(cfg.performance==3?new String[]{"hevc_mediacodec","libx265","libx264"}:new String[]{"hevc_mediacodec","libx265","libx264","libvpx-vp9"}):new String[]{"libopus","aac","flac"};
         long probeLength=length>0?length:Math.min(video?1600:2500,inf.durationMs);
         long probeStart=length>0?start:Math.max(0,(inf.durationMs-probeLength)/2);
         if(probeLength<=0)return null;
         long bitrate=inf.durationMs>0?Math.max(100000,Math.min(100000000,(long)(in.length()*8000.0/inf.durationMs*.80))):4000000;
         for(String codec:codecs){
-            int[] steps=video?("hevc_mediacodec".equals(codec)?new int[]{0}:new int[]{20,16,12,8}):
+            int[] steps=video?("hevc_mediacodec".equals(codec)?new int[]{0}:cfg.performance==3?new int[]{20,12}:new int[]{20,16,12,8}):
                     "flac".equals(codec)?new int[]{5}:new int[]{192,320};
             for(int q:steps){
                 check(c);
@@ -242,6 +251,8 @@ final class SmartCompression {
                 if("flac".equals(codec))Collections.addAll(a,"-compression_level","5");
                 else Collections.addAll(a,"-b:a",q+"k");
             }
+            if(length==0&&cfg.mode!=ConvertEngine.EXTRACT&&in.length()>0&&in.length()<Long.MAX_VALUE-1048576L)
+                Collections.addAll(a,"-fs",String.valueOf(in.length()+1048576L)); // stop a clearly oversized encode early
             Collections.addAll(a,"-threads",n,"-map_metadata","0",out.getAbsolutePath());
             if(exec(c,a.toArray(new String[0]))==null||out.length()<=0)return null;
             Result result=new Result(out,fmt,false);out=null;return result;

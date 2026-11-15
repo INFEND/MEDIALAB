@@ -229,15 +229,20 @@ public final class ConversionService extends Service {
                 state.fileNumber = n + 1;
                 state.fileProgress = 0;
                 File input = null;
+                ConvertEngine.DirectInput direct=null;
                 try {
                     ConvertEngine.Config itemCfg = ConvertEngine.forSource(cfg, src);
                     markFile("Подготовка: " + src.name + " (" + (n+1) + "/" + files.size() + ")", 0);
-                    if (!exporting && cachedPreviewInput != null && cachedPreviewInput.isFile()
+                    if(exporting && itemCfg.mode!=ConvertEngine.IMAGE){
+                        direct=ConvertEngine.openDirect(this,src);
+                        if(direct!=null){input=direct.file;markFile("Прямое чтение исходника без копирования",8);}
+                    }
+                    if (input==null && !exporting && cachedPreviewInput != null && cachedPreviewInput.isFile()
                             && src.uri.equals(cachedPreviewUri)
                             && (src.size <= 0 || src.size == cachedPreviewSize)) {
                         input = cachedPreviewInput;
                         markFile("Исходник уже подготовлен. Пересчёт качества…", 8);
-                    } else {
+                    } else if(input==null) {
                         if (!exporting && cachedPreviewInput != null) {
                             cachedPreviewInput.delete();cachedPreviewInput=null;cachedPreviewUri=null;
                         }
@@ -289,7 +294,7 @@ public final class ConversionService extends Service {
                                 output = null;
                                 sampledMs = info.durationMs;
                             }
-                        } finally { if (output != null) output.delete(); }
+                        } finally { if (output != null && !output.equals(input)) output.delete(); }
                     } else {
                         final long clipMs = itemCfg.mode == ConvertEngine.VIDEO ? 1200 : 1500;
                         List<Long> positions = ConvertEngine.previewStarts(info.durationMs, clipMs);
@@ -354,7 +359,8 @@ public final class ConversionService extends Service {
                     markFile("Не удалось обработать "+src.name+" ("+(n+1)+"/"+files.size()+")",100);
                 } finally {
                     // Preserve the staged source only for future previews of this URI.
-                    if (input != null && (exporting || input != cachedPreviewInput)) input.delete();
+                    if(direct!=null)direct.close();
+                    else if (input != null && (exporting || input != cachedPreviewInput)) input.delete();
                 }
             }
         } catch (Throwable ex) {
