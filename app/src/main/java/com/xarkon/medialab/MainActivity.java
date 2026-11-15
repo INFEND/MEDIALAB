@@ -140,6 +140,7 @@ public final class MainActivity extends Activity {
     private String lastExportMime = "application/octet-stream";
     private int mode = ConvertEngine.IMAGE, selected = 0;
     private boolean busy = false;
+    private long launchDeadline=0, launchRevision=-1;
     private long totalProgressMs = 0;
     private long previewDurationMs = 0;
     private Spinner formatSpinner, resolutionSpinner, bitrateSpinner;
@@ -536,10 +537,10 @@ public final class MainActivity extends Activity {
             openPreviewWhenReady = true;
             ui.removeCallbacks(autoPreview);
             pendingAutoPreview=false;
-            if (!ConversionService.state.running) {
+            if (!ConversionService.state.running && launchDeadline==0) {
                 busy=false;
                 perform(false);
-            } else if(!ConversionService.state.fullPreview){
+            } else if(ConversionService.state.running && !ConversionService.state.fullPreview){
                 // The automatic size probe is not the full player request.
                 pendingAutoPreview=true;
                 startService(new Intent(this,ConversionService.class).setAction(ConversionService.ACTION_CANCEL));
@@ -606,7 +607,8 @@ public final class MainActivity extends Activity {
     private void pollState() {
         ConversionService.Snapshot s = ConversionService.state;
         boolean wasBusy = busy;
-        busy = s.running;
+        if(launchDeadline!=0&&(s.running||s.revision!=launchRevision||android.os.SystemClock.elapsedRealtime()>=launchDeadline))launchDeadline=0;
+        busy = s.running || launchDeadline!=0;
         if (s.revision != lastJobRevision) {
             lastJobRevision = s.revision;
             if (!s.running && !s.exporting && !queue.isEmpty() && selected<queue.size() &&
@@ -632,7 +634,7 @@ public final class MainActivity extends Activity {
                 lastExportMime = s.lastMime;
             }
         }
-        if (wasBusy != busy) updateButtons();
+        if (wasBusy != busy || (s.running && cancelButton!=null && cancelButton.getVisibility()!=View.VISIBLE)) updateButtons();
         if (!busy && pendingExportAfterPreview) {
             pendingExportAfterPreview=false;
             pendingAutoPreview=false;
@@ -1098,7 +1100,7 @@ public final class MainActivity extends Activity {
         for(ConvertEngine.Source src:queue)known.add(documentKey(src.uri));
         if(room==0){setStatus("Очередь заполнена: 1000 файлов",true);return;}
         try{getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
-        pickerAnalyzing=true;setStatus("Сканируем папку и подпапки…",false);
+        pickerAnalyzing=true;updateButtons();setStatus("Сканируем папку и подпапки…",false);
         executor.execute(()->{
             ArrayList<ConvertEngine.Source> found=new ArrayList<>();
             java.util.ArrayDeque<String> dirs=new java.util.ArrayDeque<>();
@@ -1136,6 +1138,7 @@ public final class MainActivity extends Activity {
             ui.post(()->{
                 pickerAnalyzing=false;
                 if(isFinishing()||isDestroyed())return;
+                updateButtons();
                 if(mode!=requested){setStatus("Вкладка изменилась. Выберите папку заново.",true);return;}
                 if(failure!=null){setStatus("Не удалось прочитать папку: "+failure,true);return;}
                 if(found.isEmpty()){setStatus("В папке нет доступных файлов категории «"+MODES[requested]+"»",skipped>0);return;}
@@ -1159,7 +1162,7 @@ public final class MainActivity extends Activity {
             }
         } else if (data.getData()!=null) uris.add(data.getData());
         if (uris.isEmpty()) return;
-        pickerAnalyzing = true;
+        pickerAnalyzing = true;updateButtons();
         setStatus("Определяем тип выбранных файлов…", false);
         executor.execute(() -> {
             final ArrayList<ConvertEngine.Source> images = new ArrayList<>();
@@ -1180,6 +1183,7 @@ public final class MainActivity extends Activity {
             ui.post(() -> {
                 pickerAnalyzing=false;
                 if (isFinishing() || isDestroyed()) return;
+                updateButtons();
                 chooseDetectedCategory(images, videos, audio, unsupported);
             });
         });
@@ -1294,7 +1298,7 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams p = boxLp(-1, dp(49), 5);
             filesContainer.addView(line, p);
             line.setOnClickListener(v -> {
-                if (busy || selected == idx) return;
+                if (launchDeadline!=0 || (ConversionService.state.running && ConversionService.state.exporting) || selected == idx) return;
                 selected = idx;
                 clearPreview(); clearStaged();
                 renderFiles(); renderPreviews(); updateButtons();
@@ -1309,7 +1313,7 @@ public final class MainActivity extends Activity {
     }
     /** Queue edits never delete originals, and are blocked during active export. */
     private void removeSelectedFile(int index) {
-        if(ConversionService.state.running && ConversionService.state.exporting){
+        if(pickerAnalyzing||launchDeadline!=0||(ConversionService.state.running && ConversionService.state.exporting)){
             setStatus("Для изменения списка дождитесь окончания экспорта или отмените его",true);
             return;
         }
@@ -1320,7 +1324,7 @@ public final class MainActivity extends Activity {
         afterSelectionEdited("Убрано из очереди: "+name);
     }
     private void clearSelectedFiles() {
-        if(ConversionService.state.running && ConversionService.state.exporting){
+        if(pickerAnalyzing||launchDeadline!=0||(ConversionService.state.running && ConversionService.state.exporting)){
             setStatus("Для очистки списка дождитесь окончания экспорта или отмените его",true);
             return;
         }
@@ -1696,11 +1700,11 @@ public final class MainActivity extends Activity {
     private void updateButtons() {
         boolean has = !queue.isEmpty();
         if(engineRetryButton!=null){engineRetryButton.setVisibility(ffmpegReady?View.GONE:View.VISIBLE);engineRetryButton.setEnabled(!ffmpegPreparing);}
-        busy = ConversionService.state.running;
-        if (previewButton != null) previewButton.setEnabled(has && ffmpegReady && !(busy && ConversionService.state.exporting));
+        busy = ConversionService.state.running || launchDeadline!=0;
+        if (previewButton != null) previewButton.setEnabled(has && ffmpegReady && !pickerAnalyzing && launchDeadline==0 && !(busy && ConversionService.state.exporting));
         if (exportButton != null)
-            exportButton.setEnabled(has && ffmpegReady && !(busy && ConversionService.state.exporting));
-        if (cancelButton != null) cancelButton.setVisibility(busy ? View.VISIBLE : View.GONE);
+            exportButton.setEnabled(has && ffmpegReady && !pickerAnalyzing && launchDeadline==0 && !(busy && ConversionService.state.exporting));
+        if (cancelButton != null) cancelButton.setVisibility(ConversionService.state.running ? View.VISIBLE : View.GONE);
         if (shareButton != null) shareButton.setVisibility(exported.isEmpty() ? View.GONE : View.VISIBLE);
         boolean exportingNow = busy && ConversionService.state.exporting;
         if (qualitySeek != null) qualitySeek.setEnabled(!exportingNow);
@@ -1724,7 +1728,7 @@ public final class MainActivity extends Activity {
             setStatus("Останавливаем предпросмотр и запускаем пакетную конвертацию…",false);
             return;
         }
-        if (busy || ConversionService.state.running || queue.isEmpty() || pickerAnalyzing) return;
+        if (busy || launchDeadline!=0 || ConversionService.state.running || queue.isEmpty() || pickerAnalyzing) return;
         if (!ffmpegReady) {
             setStatus("Движок FFmpeg не готов: " + ffmpegDiagnostic, true);
             showEngineDiagnostics(); return;
@@ -1739,6 +1743,7 @@ public final class MainActivity extends Activity {
         } else clearPreview();
         try {
             Intent intent = ConversionService.request(this, chosen, cfg, exporting,openPreviewWhenReady);
+            launchRevision=ConversionService.state.revision;launchDeadline=android.os.SystemClock.elapsedRealtime()+5000;
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
             else startService(intent);
             busy = true;
@@ -1747,7 +1752,7 @@ public final class MainActivity extends Activity {
                     "Начинается выборочный предпросмотр из разных частей файла…", false);
             updateButtons();
         } catch (Throwable ex) {
-            busy = false;
+            launchDeadline=0;busy = false;
             setStatus("Не удалось запустить службу: " + formatFailure(ex), true);
             updateButtons();
         }

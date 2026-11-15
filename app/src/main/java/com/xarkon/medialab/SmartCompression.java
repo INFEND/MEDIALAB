@@ -193,7 +193,7 @@ final class SmartCompression {
             if("audio".equals(stream.getType()))audios++;
         }
         if(video && (videos!=1 || props.contains("smpte2084") || props.contains("arib-std-b67") || props.contains("dovi")))return null;
-        if(!video && (audios!=1 || (cfg.mode==ConvertEngine.AUDIO && mi.getStreams().size()!=1)))return null;
+        if(!video && (audios<1 || (cfg.mode==ConvertEngine.AUDIO && (audios!=1 || mi.getStreams().size()!=1))))return null;
         // Probe short scenes first; do not repeatedly encode the full input.
         String[] codecs=video?(cfg.performance==3?new String[]{"hevc_mediacodec","libx265","libx264"}:new String[]{"hevc_mediacodec","libx265","libx264","libvpx-vp9"}):new String[]{"libopus","aac","flac"};
         long probeLength=length>0?length:Math.min(video?1600:2500,inf.durationMs);
@@ -220,7 +220,7 @@ final class SmartCompression {
                 try{
                     if(cfg.mode!=ConvertEngine.EXTRACT && full.file.length()>=in.length())return null;
                     long actual=ConvertEngine.info(full.file).durationMs;
-                    if(inf.durationMs>0 && (actual<=0||Math.abs(actual-inf.durationMs)>Math.max(120,inf.durationMs/100)))return null;
+                    if(inf.durationMs>0 && (actual<=0||Math.abs(actual-inf.durationMs)>Math.max(120,inf.durationMs/100))){if(cfg.mode==ConvertEngine.EXTRACT)continue;return null;}
                     status.update("ASC PRO · полный контроль качества "+codec);
                     if(!checkCandidate(ctx,in,full,video,0,0,cfg.performance,c)){if(cfg.mode==ConvertEngine.EXTRACT)continue;return null;}
                     Result result=full;full=null;return result;

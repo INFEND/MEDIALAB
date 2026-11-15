@@ -42,7 +42,11 @@ metadata={
  'sha256':hashlib.sha256(apk.read_bytes()).hexdigest(), 'sizeBytes':apk.stat().st_size,
  'publishedAt':datetime.now(timezone.utc).isoformat(timespec='seconds'), 'notes':notes,
 }
-(ROOT/'dist/update.json').write_text(json.dumps(metadata,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+encoded=(json.dumps(metadata,indent=2,ensure_ascii=False)+'\n').encode('utf-8')
+if len(encoded)>512*1024:raise SystemExit('OTA manifest exceeds client safety limit')
+if len(encoded)>60*1024:print('::warning::OTA history approaching legacy 64 KiB client limit; migration required before exceeding it')
+(ROOT/'dist/update.json').write_bytes(encoded)
+assert json.loads(encoded)['history'][-1]['versionCode']==int(code)
 if __import__('os').environ.get('GITHUB_OUTPUT'):
  with open(__import__('os').environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as o:
   o.write('tag=v'+version+'\nversion='+version+'\n')

@@ -30,6 +30,7 @@ public final class OtaUpdater {
     private static final String MANIFEST="https://github.com/INFEND/MEDIALAB/releases/latest/download/update.json";
     private static final String REPO_PREFIX="https://github.com/INFEND/MEDIALAB/releases/download/";
     private static final long MAX_SIZE=450L*1024L*1024L;
+    static final int MAX_MANIFEST_BYTES=512*1024;
     private static final ExecutorService worker=Executors.newSingleThreadExecutor();
     private static final Handler main=new Handler(Looper.getMainLooper());
     static File file(android.content.Context c){File dir=new File(c.getFilesDir(),"ota");return new File(dir,"MediaLAB-update.apk");}
@@ -170,7 +171,7 @@ public final class OtaUpdater {
                 try(InputStream in=conn.getInputStream()){
                     byte[] b=new byte[4096];int n;
                     while((n=in.read(b))!=-1){
-                        if(data.size()+n>65536)throw new IOException("Слишком большой манифест");
+                        if(data.size()+n>MAX_MANIFEST_BYTES)throw new IOException("Слишком большой манифест");
                         data.write(b,0,n);
                     }
                 }
@@ -222,8 +223,7 @@ public final class OtaUpdater {
                 if(archive==null||archive.getLongVersionCode()!=release.code)
                     throw new IOException("Версия APK не совпадает с манифестом");
                 checkSigner(a,temp);
-                if(target.exists()&&!target.delete())throw new IOException("Не удалось заменить APK");
-                if(!temp.renameTo(target))throw new IOException("Не удалось сохранить APK");
+                java.nio.file.Files.move(temp.toPath(),target.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING,java.nio.file.StandardCopyOption.ATOMIC_MOVE);
                 main.post(()->{if(!a.isFinishing()&&!a.isDestroyed()&&ui.isShowing())
                     ui.ready(release.name,()->install(a,ui));});
             }catch(Exception e){
@@ -237,6 +237,9 @@ public final class OtaUpdater {
         try{
             File apk=file(a);if(!apk.isFile())throw new IOException("APK отсутствует");
             checkSigner(a,apk);
+            PackageInfo archive=a.getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(),0);
+            PackageInfo installed=a.getPackageManager().getPackageInfo(a.getPackageName(),0);
+            if(archive==null||archive.getLongVersionCode()<=installed.getLongVersionCode())throw new IOException("Обновление уже установлено или устарело");
             if(Build.VERSION.SDK_INT>=26&&!a.getPackageManager().canRequestPackageInstalls()){
                 ui.fail("Разрешите установку APK для MediaLAB в настройках Android",
                     ()->install(a,ui));

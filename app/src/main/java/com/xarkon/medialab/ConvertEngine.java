@@ -243,6 +243,19 @@ final class ConvertEngine {
         DirectInput(File f,android.os.ParcelFileDescriptor d){file=f;descriptor=d;}
         @Override public void close(){file.delete();try{descriptor.close();}catch(IOException ignored){}}
     }
+    static long modified(Context ctx,Uri uri){
+        try(Cursor c=ctx.getContentResolver().query(uri,new String[]{android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED},null,null,null)){
+            if(c!=null&&c.moveToFirst()&&!c.isNull(0))return c.getLong(0);
+        }catch(Exception ignored){}
+        return 0;
+    }
+    static boolean canProbeDirect(File file){
+        try{
+            MediaInformationSession session=FFprobeKit.getMediaInformation(file.getAbsolutePath());
+            MediaInformation info=session==null?null:session.getMediaInformation();
+            return info!=null&&info.getStreams()!=null&&!info.getStreams().isEmpty();
+        }catch(Exception ignored){return false;}
+    }
     static DirectInput openDirect(Context ctx,Source source){
         android.os.ParcelFileDescriptor fd=null;
         File link=null;
@@ -292,8 +305,11 @@ final class ConvertEngine {
                 long now=android.os.SystemClock.elapsedRealtime();
                 if(now-lastReport>=120){lastReport=now;progress.update(copied,source.size);}
             }
+            if(canceled.canceled())throw new IOException("Операция отменена");
+            if(copied==0)throw new IOException("Исходный файл пуст");
+            if(source.size>0&&copied!=source.size)throw new IOException("Размер исходного файла изменился; выберите его заново");
             progress.update(copied,source.size);
-        } catch (IOException ex) {
+        } catch (IOException | RuntimeException ex) {
             result.delete();
             throw ex;
         }

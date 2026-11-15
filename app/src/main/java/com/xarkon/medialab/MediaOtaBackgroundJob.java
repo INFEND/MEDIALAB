@@ -27,7 +27,7 @@ public final class MediaOtaBackgroundJob extends JobService {
                 try(InputStream input=c.getInputStream()) {
                     byte[] buffer=new byte[4096];int n;
                     while((n=input.read(buffer))!=-1) {
-                        if(out.size()+n>65536)throw new java.io.IOException("Invalid OTA manifest size");
+                        if(out.size()+n>OtaUpdater.MAX_MANIFEST_BYTES)throw new java.io.IOException("Invalid OTA manifest size");
                         out.write(buffer,0,n);
                     }
                 } finally {c.disconnect();}
@@ -35,10 +35,10 @@ public final class MediaOtaBackgroundJob extends JobService {
                 if(!"com.xarkon.medialab".equals(j.optString("packageName")))return;
                 long available=j.optLong("versionCode",0);
                 PackageInfo pkg=getPackageManager().getPackageInfo(getPackageName(),0);
-                if(available>pkg.versionCode && available>getSharedPreferences(MediaOtaSchedule.PREF,0).getLong("last_notified",0)) {
+                if(available>pkg.getLongVersionCode() && available>getSharedPreferences(MediaOtaSchedule.PREF,0).getLong("last_notified",0)) {
                     String name=j.optString("versionName","Новая версия");
                     NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
-                    if(nm!=null){
+                    if(nm!=null&&nm.areNotificationsEnabled()){
                         String channel="medialab_updates";
                         nm.createNotificationChannel(new NotificationChannel(channel,"Обновления MediaLAB",NotificationManager.IMPORTANCE_DEFAULT));
                         Intent intent=new Intent(this,MainActivity.class).setAction("com.xarkon.medialab.CHECK_OTA");
@@ -47,8 +47,8 @@ public final class MediaOtaBackgroundJob extends JobService {
                                 .setContentTitle("Обновление MediaLAB "+name).setContentText("Откройте приложение для установки")
                                 .setAutoCancel(true).setContentIntent(pi).build();
                         nm.notify(8204,n);
+                        getSharedPreferences(MediaOtaSchedule.PREF,0).edit().putLong("last_notified",available).apply();
                     }
-                    getSharedPreferences(MediaOtaSchedule.PREF,0).edit().putLong("last_notified",available).apply();
                 }
             }catch(Exception ignored){}
             finally {jobFinished(params,false);}

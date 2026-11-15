@@ -45,6 +45,7 @@ public final class ConversionService extends Service {
     private static File cachedPreviewInput;
     private static Uri cachedPreviewUri;
     private static long cachedPreviewSize;
+    private static long cachedPreviewModified;
     private volatile int segmentIndex, segmentsCount;
     private volatile long activeClipMs;
 
@@ -225,6 +226,7 @@ public final class ConversionService extends Service {
                         (segmentIndex + portion) / Math.max(1, segmentsCount));
                 markFile(state.status, part);
             });
+            if(exporting&&cachedPreviewInput!=null){cachedPreviewInput.delete();cachedPreviewInput=null;cachedPreviewUri=null;}
             if (!exporting) {
                 synchronized (state.parts) {
                     for (File prev : state.parts) prev.delete();
@@ -244,13 +246,17 @@ public final class ConversionService extends Service {
                 try {
                     ConvertEngine.Config itemCfg = ConvertEngine.forSource(cfg, src);
                     markFile("Подготовка: " + src.name + " (" + (n+1) + "/" + files.size() + ")", 0);
-                    if(exporting && itemCfg.mode!=ConvertEngine.IMAGE){
+                    if(itemCfg.mode!=ConvertEngine.IMAGE){
                         direct=ConvertEngine.openDirect(this,src);
-                        if(direct!=null){input=direct.file;markFile("Прямое чтение исходника без копирования",8);}
+                        if(direct!=null){
+                            if(ConvertEngine.canProbeDirect(direct.file)){input=direct.file;markFile("Прямое чтение исходника без копирования",8);}
+                            else{direct.close();direct=null;}
+                        }
                     }
                     if (input==null && !exporting && cachedPreviewInput != null && cachedPreviewInput.isFile()
                             && src.uri.equals(cachedPreviewUri)
-                            && (src.size <= 0 || src.size == cachedPreviewSize)) {
+                            && (src.size <= 0 || src.size == cachedPreviewSize) && cachedPreviewModified>0 &&
+                            cachedPreviewModified==ConvertEngine.modified(this,src.uri)) {
                         input = cachedPreviewInput;
                         markFile("Исходник уже подготовлен. Пересчёт качества…", 8);
                     } else if(input==null) {
@@ -266,6 +272,7 @@ public final class ConversionService extends Service {
                             cachedPreviewInput = input;
                             cachedPreviewUri = src.uri;
                             cachedPreviewSize = src.size;
+                            cachedPreviewModified=ConvertEngine.modified(this,src.uri);
                         }
                     }
                     if (cancellation.get()) break;
@@ -387,7 +394,9 @@ public final class ConversionService extends Service {
                 } finally {
                     // Preserve the staged source only for future previews of this URI.
                     if(direct!=null)direct.close();
-                    else if (input != null && (exporting || input != cachedPreviewInput)) input.delete();
+                    else if (input != null && (exporting || input != cachedPreviewInput || cachedPreviewModified<=0)) {
+                        input.delete();if(input==cachedPreviewInput){cachedPreviewInput=null;cachedPreviewUri=null;}
+                    }
                 }
             }
         } catch (Throwable ex) {
