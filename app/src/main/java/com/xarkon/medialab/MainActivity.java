@@ -533,9 +533,15 @@ public final class MainActivity extends Activity {
         if(ConversionService.state.running&&ConversionService.state.exporting)return;
         if (previewParts.isEmpty() || previewOutput == null || !previewOutput.exists() || (mode!=ConvertEngine.IMAGE && !previewFull)) {
             openPreviewWhenReady = true;
-            if (!(ConversionService.state.running && !ConversionService.state.exporting)) {
-                ui.removeCallbacks(autoPreview);
+            ui.removeCallbacks(autoPreview);
+            pendingAutoPreview=false;
+            if (!ConversionService.state.running) {
+                busy=false;
                 perform(false);
+            } else if(!ConversionService.state.fullPreview){
+                // The automatic size probe is not the full player request.
+                pendingAutoPreview=true;
+                startService(new Intent(this,ConversionService.class).setAction(ConversionService.ACTION_CANCEL));
             }
             setStatus("Создаётся предпросмотр для полноэкранного просмотра…", false);
             return;
@@ -545,6 +551,7 @@ public final class MainActivity extends Activity {
         i.putExtra("source", queue.get(selected).uri.toString());
         i.putExtra("mode", mode);
         i.putExtra("previewUnverified",previewUnverified);
+        i.putExtra("previewSourceOnly",ConversionService.state.previewSourceOnly);
         i.putExtra("sourceName", queue.get(selected).name);
         ArrayList<String> paths = new ArrayList<>();
         for (File f : previewParts) if (f.exists()) paths.add(f.getAbsolutePath());
@@ -595,7 +602,8 @@ public final class MainActivity extends Activity {
         busy = s.running;
         if (s.revision != lastJobRevision) {
             lastJobRevision = s.revision;
-            if (!s.running && !s.exporting) {
+            if (!s.running && !s.exporting && !queue.isEmpty() && selected<queue.size() &&
+                    queue.get(selected).uri.toString().equals(s.sourceKey) && s.mode==mode && s.quality==savedQuality[mode]) {
                 previewParts.clear(); pairedParts.clear();
                 synchronized (s.parts) { for (File f : s.parts) if (f.exists()) previewParts.add(f); }
                 synchronized (s.compareParts) { for (File f : s.compareParts) if (f.exists()) pairedParts.add(f); }
@@ -607,8 +615,9 @@ public final class MainActivity extends Activity {
                 previewFull=s.fullPreview;
                 if (pendingAutoPreview) { previewParts.clear(); pairedParts.clear(); previewOutput = null; previewSettings = null; }
                 if (!queue.isEmpty() && estimateBox != null) renderPreviews();
-                if (!previewParts.isEmpty() && !pendingAutoPreview && openPreviewWhenReady) ui.post(this::openFullPreview);
-                else if(s.error)openPreviewWhenReady=false;
+                if (openPreviewWhenReady && !pendingAutoPreview && (!previewParts.isEmpty() || !s.fullPreview))
+                    ui.post(this::openFullPreview);
+                else if(s.error && s.fullPreview)openPreviewWhenReady=false;
             }
             if (!s.results.isEmpty()) {
                 exported.clear(); synchronized (s.results) { exported.addAll(s.results); }
@@ -625,7 +634,8 @@ public final class MainActivity extends Activity {
         if (wasBusy && !busy && pendingAutoPreview) {
             pendingAutoPreview = false;
             ui.removeCallbacks(autoPreview);
-            ui.postDelayed(autoPreview, 700);
+            if(openPreviewWhenReady)ui.post(this::openFullPreview);
+            else ui.postDelayed(autoPreview, 250);
         }
         updateEstimateAnimation();
         if (progressBar != null) progressBar.setProgress(s.progress);
@@ -1360,7 +1370,7 @@ public final class MainActivity extends Activity {
                 if(mode==ConvertEngine.VIDEO && previewSettings.quality==SmartCompression.QUALITY){
                     estimateBox.addView(txt("ASC PRO · ВЕРХНЯЯ ГРАНИЦА РАЗМЕРА",11,SECONDARY,true),boxLp(-1,-2,6));
                     estimateBox.addView(txt(original>0?"≤ "+ConvertEngine.humanBytes(original):"Размер исходника неизвестен",23,BLUE,true),boxLp(-1,-2,5));
-                    estimateBox.addView(txt("Некоторые сцены не подтвердили качество. Предпросмотр ориентировочный; при экспорте программа проверит видео целиком и сохранит исходник, если меньший вариант не пройдёт контроль.",12,SECONDARY,false));
+                    estimateBox.addView(txt(ConversionService.state.previewSourceOnly?"Некоторые сцены показывают исходник с обеих сторон: сравнение не удалось. Размер не подтверждён.":"Некоторые сцены не подтвердили качество. Предпросмотр ориентировочный; при экспорте программа проверит видео целиком и сохранит исходник, если меньший вариант не пройдёт контроль.",12,SECONDARY,false));
                 }else{
                     estimateBox.addView(txt("Демонстрационный предпросмотр",13,BLUE,true),boxLp(-1,-2,6));
                     estimateBox.addView(txt("Не все сцены прошли контроль ASC PRO. Размер не прогнозируется по этим фрагментам; при экспорте качество проверяется отдельно.",12,SECONDARY,false));

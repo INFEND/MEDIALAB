@@ -45,7 +45,9 @@ final class SmartCompression {
             File demo=ConvertEngine.outputTemp(ctx,format);
             try{
                 ConvertEngine.Config fallback=new ConvertEngine.Config(cfg.mode,format,95,0,3,cfg.performance);
-                FFmpegSession session=ConvertEngine.convert(in,demo,fallback,info,start,length);
+                FFmpegSession session=cfg.mode==ConvertEngine.VIDEO?
+                        ConvertEngine.demoVideo(in,demo,start,length,info.height>info.width):
+                        ConvertEngine.convert(in,demo,fallback,info,start,length);
                 check(canceled);
                 if(session==null||!ReturnCode.isSuccess(session.getReturnCode())||demo.length()==0)
                     throw new IOException("ASC PRO: не удалось создать даже демонстрационный фрагмент");
@@ -236,9 +238,10 @@ final class SmartCompression {
             if(video){
                 // Preserve original frame cadence; Matroska rounds timestamps to milliseconds.
                 Collections.addAll(a,"-fps_mode:v:0","passthrough");
-                if(length>0)Collections.addAll(a,"-map","0:v:0","-map","0:a?");
+                if(length>0)Collections.addAll(a,"-map","0:v:0","-map","0:a:0?");
                 else Collections.addAll(a,"-map","0");
                 Collections.addAll(a,"-c","copy","-c:v:0",codec);
+                if(length>0)Collections.addAll(a,"-c:a","aac","-b:a","128k","-ac","2");
                 if("hevc_mediacodec".equals(codec))Collections.addAll(a,"-b:v:0",String.valueOf(bitrate),"-pix_fmt","yuv420p");
                 else {
                     Collections.addAll(a,"-crf",String.valueOf(q));

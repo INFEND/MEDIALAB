@@ -509,23 +509,63 @@ final class ConvertEngine {
      * Preview-only composite, never used to estimate encoded output size.
      */
     static FFmpegSession comparisonSample(File original, File encoded, File paired,
-                                         long startMs, long lengthMs, boolean portrait) {
-        String start = String.format(Locale.US,"%.3f", startMs/1000.0);
-        String seconds = String.format(Locale.US,"%.3f",lengthMs/1000.0);
-        // Portrait and landscape both keep the source's display orientation.
-        // One half is at most 768x432, or 432x768 for portrait.
-        String size = portrait ? "432:768" : "768:432";
-        String common = "setpts=PTS-STARTPTS,fps=24:start_time=0,scale="+size+":force_original_aspect_ratio=decrease," +
-                "pad="+size+":(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=N/(24*TB)";
-        String graph = "[0:v:0]" + common + "[left];[1:v:0]" + common +
-                "[right];[left][right]hstack=inputs=2:shortest=1[paired]";
-        List<String> args = new ArrayList<>();
-        add(args,"-hide_banner","-nostdin","-y","-ss",start,"-i",original.getAbsolutePath(),
-                "-i",encoded.getAbsolutePath(),"-filter_complex",graph,
-                "-map","[paired]","-map","1:a?","-t",seconds,
-                "-c:v","mpeg4","-q:v","2","-pix_fmt","yuv420p",
-                "-c:a","aac","-b:a","128k","-movflags","+faststart",paired.getAbsolutePath());
+                                          long startMs, long lengthMs, boolean portrait) {
+        return previewPair(original,encoded,paired,startMs,lengthMs,portrait,false);
+    }
+    static FFmpegSession previewPair(File original,File encoded,File paired,long startMs,long lengthMs,
+                                     boolean portrait,boolean sourceOnly){
+        String start=String.format(Locale.US,"%.3f",startMs/1000.0);
+        String seconds=String.format(Locale.US,"%.3f",lengthMs/1000.0);
+        // Use a decoder-friendly packed frame, fixed SDR format, synchronized timestamps.
+        String size=portrait?"360:640":"640:360";
+        String common="setpts=PTS-STARTPTS,fps=24:start_time=0,scale="+size+
+                ":force_original_aspect_ratio=decrease,pad="+size+":(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,setpts=N/(24*TB)";
+        String graph=sourceOnly?"[0:v:0]"+common+",split=2[left][right];[left][right]hstack=inputs=2:shortest=1[paired]":
+                "[0:v:0]"+common+"[left];[1:v:0]"+common+"[right];[left][right]hstack=inputs=2:shortest=1[paired]";
+        FFmpegSession last=null;
+        for(String codec:new String[]{"h264_mediacodec","libx264","mpeg4"}){
+            if(last!=null&&ReturnCode.isCancel(last.getReturnCode()))return last;
+            paired.delete();
+            List<String> args=new ArrayList<>();
+            add(args,"-hide_banner","-nostdin","-y","-ss",start,"-i",original.getAbsolutePath());
+            if(!sourceOnly)add(args,"-i",encoded.getAbsolutePath());
+            add(args,"-filter_complex",graph,"-map","[paired]","-map",sourceOnly?"0:a:0?":"1:a:0?","-t",seconds,
+                "-c:v",codec,"-pix_fmt","yuv420p");
+            if("h264_mediacodec".equals(codec))add(args,"-b:v","3500k");
+            else if("libx264".equals(codec))add(args,"-preset","ultrafast","-crf","20");
+            else add(args,"-q:v","3");
+            add(args,"-c:a","aac","-b:a","128k","-ac","2","-movflags","+faststart",paired.getAbsolutePath());
+            last=FFmpegKit.executeWithArguments(args.toArray(new String[0]));
+            if(last!=null&&ReturnCode.isSuccess(last.getReturnCode())&&paired.length()>0)return last;
+        }
+        // Audio failure must not make the video preview unusable.
+        if(last!=null&&ReturnCode.isCancel(last.getReturnCode()))return last;
+        paired.delete();
+        List<String> args=new ArrayList<>();
+        add(args,"-hide_banner","-nostdin","-y","-ss",start,"-i",original.getAbsolutePath());
+        if(!sourceOnly)add(args,"-i",encoded.getAbsolutePath());
+        add(args,"-filter_complex",graph,"-map","[paired]","-t",seconds,"-an","-c:v","mpeg4","-q:v","3","-pix_fmt","yuv420p",paired.getAbsolutePath());
         return FFmpegKit.executeWithArguments(args.toArray(new String[0]));
+    }
+    static FFmpegSession demoVideo(File original,File output,long startMs,long lengthMs,boolean portrait){
+        String size=portrait?"360:640":"640:360";
+        FFmpegSession last=null;
+        for(String codec:new String[]{"h264_mediacodec","libx264","mpeg4"}){
+            if(last!=null&&ReturnCode.isCancel(last.getReturnCode()))return last;
+            output.delete();
+            List<String> args=new ArrayList<>();
+            add(args,"-hide_banner","-nostdin","-y","-ss",String.format(Locale.US,"%.3f",startMs/1000.0),
+                "-i",original.getAbsolutePath(),"-t",String.format(Locale.US,"%.3f",lengthMs/1000.0),
+                "-map","0:v:0","-map","0:a:0?","-vf","scale="+size+":force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,format=yuv420p",
+                "-c:v",codec);
+            if("h264_mediacodec".equals(codec))add(args,"-b:v","2500k");
+            else if("libx264".equals(codec))add(args,"-preset","ultrafast","-crf","19");
+            else add(args,"-q:v","3");
+            add(args,"-c:a","aac","-ac","2","-b:a","128k","-movflags","+faststart",output.getAbsolutePath());
+            last=FFmpegKit.executeWithArguments(args.toArray(new String[0]));
+            if(last!=null&&ReturnCode.isSuccess(last.getReturnCode())&&output.length()>0)return last;
+        }
+        return last;
     }
 
     static Uri save(Context ctx, File result, String displayName, String mime, Canceled canceled) throws IOException {

@@ -39,7 +39,7 @@ public final class PreviewActivity extends Activity {
     private MediaPlayer player;
     private SyncedCompareView liveView;
     private BeforeAfterView imageView;
-    private boolean closed, pausedByUser, previewUnverified;
+    private boolean closed, pausedByUser, previewUnverified, previewSourceOnly;
     private volatile boolean ready;
     private int accent=0xff80a8ff;
     @Override public void onCreate(Bundle saved) {
@@ -53,6 +53,7 @@ public final class PreviewActivity extends Activity {
         source=sourceValue==null?null:Uri.parse(sourceValue);
         mode=getIntent().getIntExtra("mode",ConvertEngine.VIDEO);
         previewUnverified=getIntent().getBooleanExtra("previewUnverified",false);
+        previewSourceOnly=getIntent().getBooleanExtra("previewSourceOnly",false);
         if(parts==null||parts.isEmpty()) {finish();return;}
         int[] accents=QrLook.COLORS;
         int color=getSharedPreferences("MainActivity",MODE_PRIVATE).getInt("accent",0);
@@ -147,7 +148,7 @@ public final class PreviewActivity extends Activity {
         return b;
     }
     private void togglePlayback() {
-        if(player==null) return;
+        if(player==null || "Повторить".contentEquals(toggle.getText())) {pausedByUser=false;playPart(currentPart);return;}
         try {
             if(player.isPlaying()) { player.pause();pausedByUser=true;toggle.setText("Воспроизвести"); }
             else { pausedByUser=false;player.start();toggle.setText("Пауза"); }
@@ -167,7 +168,7 @@ public final class PreviewActivity extends Activity {
         File f=new File(sequence.get(index));
         if(!f.exists()||f.length()<1){playPart(index+1);return;}
         currentPart=index;
-        status.setText("Сцена "+(index+1)+" / "+sequence.size()+(previewUnverified?" • Демо, качество не проверено":" • До / после"));
+        status.setText("Сцена "+(index+1)+" / "+sequence.size()+(previewSourceOnly?" • Возможен показ исходника с обеих сторон":previewUnverified?" • Демо, качество не проверено":" • До / после"));
         toggle.setText("Пауза");
         try {
             MediaPlayer next=new MediaPlayer();player=next;
@@ -184,7 +185,8 @@ public final class PreviewActivity extends Activity {
             next.setOnCompletionListener(mp->{if(!closed&&mp==player)playPart(index+1);});
             next.setOnErrorListener((mp,what,extra)->{
                 status.setText("Ошибка декодера: "+what+"/"+extra);
-                toggle.setText("Повторить");return true;
+                if(!closed&&mp==player&&index+1<sequence.size())stage.post(()->playPart(index+1));
+                else toggle.setText("Повторить");return true;
             });
             next.prepareAsync();
         } catch(Exception e) {status.setText("Не удалось открыть сцену: "+e.getMessage());}

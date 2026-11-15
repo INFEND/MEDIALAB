@@ -65,6 +65,7 @@ public final class ConversionService extends Service {
         volatile int earlySampleCount;
         volatile int earlySampleTotal;
         volatile boolean previewUnverified;
+        volatile boolean previewSourceOnly;
         volatile boolean fullPreview;
         volatile String sourceKey = "";
 
@@ -150,6 +151,7 @@ public final class ConversionService extends Service {
         state.earlySampleCount=0;
         state.earlySampleTotal=0;
         state.previewUnverified=false;
+        state.previewSourceOnly=false;
         state.fullPreview=request.getBooleanExtra("fullPreview",false);
         ArrayList<Uri> requestUris = request.getParcelableArrayListExtra("uris");
         state.sourceKey = requestUris != null && !requestUris.isEmpty() ?
@@ -302,6 +304,7 @@ public final class ConversionService extends Service {
                         segmentsCount = positions.size();
                         state.earlySampleTotal=positions.size();
                         state.durationMs=info.durationMs;
+                        Exception lastSceneError=null;
                         for (int p = 0; p < positions.size() && !cancellation.get(); p++) {
                             segmentIndex = p;
                             long start = positions.get(p);
@@ -339,15 +342,29 @@ public final class ConversionService extends Service {
                                         markFile("Синхронизация: участок " + (p+1) + "/" + positions.size(),
                                                 8 + 83 * (p + 1) / Math.max(1, positions.size()));
                                         FFmpegSession match = ConvertEngine.comparisonSample(input, output, paired, start, length, info.height>info.width);
+                                        if(match==null||!ReturnCode.isSuccess(match.getReturnCode())||paired.length()==0){
+                                            if(cancellation.get())break;
+                                            // Source-only comparison is honest fallback, not evidence of compression.
+                                            match=ConvertEngine.previewPair(input,output,paired,start,length,info.height>info.width,true);
+                                            state.previewUnverified=true;
+                                            state.previewSourceOnly=true;
+                                        }
                                         validate(match, paired);
+                                        if(cancellation.get())break;
                                         comparisons.add(paired);
                                         paired = null;
                                     } finally { if (paired != null) paired.delete(); }
                                 }
                                 previews.add(output);
                                 output = null;
+                            } catch(Exception sceneError){
+                                if(cancellation.get())break;
+                                lastSceneError=sceneError;state.previewUnverified=true;
+                                Log.w(TAG,"Skipped preview scene "+(p+1),sceneError);
+                                // Keep previously successful scenes; the next scene can still play.
                             } finally { if (output != null) output.delete(); }
                         }
+                        if(previews.isEmpty()&&!cancellation.get()&&lastSceneError!=null)throw lastSceneError;
                     }
                 } catch (Exception itemError) {
                     if(cancellation.get())break;
