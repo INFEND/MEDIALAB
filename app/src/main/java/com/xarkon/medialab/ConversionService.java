@@ -250,20 +250,29 @@ public final class ConversionService extends Service {
                         File output = ConvertEngine.outputTemp(this, itemCfg.format);
                         try {
                             markFile("Конвертация " + (n+1) + "/" + files.size() + ": " + src.name, 8);
+                            String actualFormat=itemCfg.format;
+                            boolean keptOriginal=false;
+                            if(itemCfg.quality==SmartCompression.QUALITY){
+                                output.delete(); output=null;
+                                SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,cancellation::get,msg->markFile(msg,10));
+                                output=result.file;actualFormat=result.format;keptOriginal=result.original;
+                            } else {
                             boolean nativeImage = ConvertEngine.convertNativeImage(input, output, itemCfg, cancellation::get);
                             if(!nativeImage) {
                                 FFmpegSession session = ConvertEngine.convert(input, output, itemCfg, info, 0, 0);
                                 validate(session, output);
                             }
+                            }
                             if (cancellation.get()) break;
                             if (exporting) {
+                                String actualMime=keptOriginal?getContentResolver().getType(src.uri):ConvertEngine.mime(itemCfg.mode,actualFormat);
+                                if(actualMime==null)actualMime=ConvertEngine.mime(itemCfg.mode,actualFormat);
                                 Uri dst = ConvertEngine.save(this, output,
-                                        ConvertEngine.fileName(src.name, itemCfg.format, n),
-                                        ConvertEngine.mime(itemCfg.mode, itemCfg.format), cancellation::get);
+                                        ConvertEngine.fileName(src.name, actualFormat, n),actualMime, cancellation::get);
                                 state.results.add(dst);
-                                state.lastMime = ConvertEngine.mime(itemCfg.mode, itemCfg.format);
+                                state.lastMime = actualMime;
                                 saved++;
-                                markFile("Сохранён: " + src.name, 100);
+                                markFile((keptOriginal?"Сохранён без повторного сжатия: ":"Сохранён: ") + src.name, 100);
                             } else {
                                 previews.add(output);
                                 output = null;
@@ -285,8 +294,14 @@ public final class ConversionService extends Service {
                                     8 + 83 * p / Math.max(1, positions.size()));
                             File output = ConvertEngine.outputTemp(this, itemCfg.format);
                             try {
-                                FFmpegSession session = ConvertEngine.convert(input, output, itemCfg, info, start, length);
-                                validate(session, output);
+                                if(itemCfg.quality==SmartCompression.QUALITY){
+                                    output.delete();output=null;
+                                    SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,start,length,cancellation::get,msg->markFile(msg,10));
+                                    output=result.file;
+                                }else{
+                                    FFmpegSession session = ConvertEngine.convert(input, output, itemCfg, info, start, length);
+                                    validate(session, output);
+                                }
                                 if (cancellation.get()) break;
                                 sampledMs += length;
                                 sampledBytes += output.length();

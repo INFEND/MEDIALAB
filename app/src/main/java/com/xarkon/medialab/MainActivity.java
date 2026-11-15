@@ -112,8 +112,8 @@ public final class MainActivity extends Activity {
         perform(false);
     };
     private final int[] savedQuality = {70, 70, 70, 70};
-    private static final int[] QUALITY_STAGES={1,5,10,20,30,40,55,70,85,95};
-    private static final String[] QUALITY_NAMES={"Экстремальное", "Минимальный объём", "Ультрасжатие", "Очень сильное", "Сильное", "Компактное", "Сбалансированное", "Хорошее", "Высокое", "Максимальное"};
+    private static final int[] QUALITY_STAGES={1,5,10,20,30,40,55,70,85,95,SmartCompression.QUALITY};
+    private static final String[] QUALITY_NAMES={"Экстремальное", "Минимальный объём", "Ультрасжатие", "Очень сильное", "Сильное", "Компактное", "Сбалансированное", "Хорошее", "Высокое", "Максимальное", "ASC PRO · Минимум веса / Максимум качества"};
     private static int stageIndex(int quality) {
         int nearest=0;
         for(int i=1;i<QUALITY_STAGES.length;i++)
@@ -121,7 +121,7 @@ public final class MainActivity extends Activity {
         return nearest;
     }
     private static String qualityName(int level) {
-        return QUALITY_NAMES[level]+"  ["+QUALITY_STAGES[level]+"%]";
+        return QUALITY_STAGES[level]==SmartCompression.QUALITY ? QUALITY_NAMES[level] : QUALITY_NAMES[level]+"  ["+QUALITY_STAGES[level]+"%]";
     }
     private final int[] savedFormat = {3, 0, 0, 0};
     private final int[] savedResolution = {0, 0, 0, 0};
@@ -876,17 +876,18 @@ public final class MainActivity extends Activity {
         qualityLabel=txt(qualityName(stageIndex(savedQuality[mode])),18,WHITE,true);
         settings.addView(qualityLabel,boxLp(-1,-2,8));
         qualitySeek=new SeekBar(this);
-        qualitySeek.setMax(9);
+        qualitySeek.setMax(QUALITY_STAGES.length-1);
         qualitySeek.setProgress(stageIndex(savedQuality[mode]));
         qualitySeek.setProgressTintList(ColorStateList.valueOf(BLUE));
         qualitySeek.setThumbTintList(ColorStateList.valueOf(BLUE));
         qualitySeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar bar,int p,boolean fromUser){
-                int index=Math.max(0,Math.min(9,p));
+                int index=Math.max(0,Math.min(QUALITY_STAGES.length-1,p));
                 savedQuality[mode]=QUALITY_STAGES[index];
                 if(qualityLabel!=null)qualityLabel.setText(qualityName(index));
                 // Bitrate remains adjustable independently, but follows the quality profile until overridden.
-                savedBitrate[mode] = Math.min(3,(index*4)/10);
+                if(savedQuality[mode]!=SmartCompression.QUALITY)savedBitrate[mode] = Math.min(3,(index*4)/10);
+                updateButtons();
             }
             public void onStartTrackingTouch(SeekBar bar){}
             public void onStopTrackingTouch(SeekBar bar){
@@ -896,7 +897,7 @@ public final class MainActivity extends Activity {
             }
         });
         settings.addView(qualitySeek,boxLp(-1,dp(45),6));
-        settings.addView(txt("10 уровней · проценты обозначают параметр качества, не гарантированную экономию места",11,SECONDARY,false),boxLp(-1,-2,12));
+        settings.addView(txt("10 ручных уровней + ASC PRO · автоформат, исходное разрешение, проверка качества. Может работать дольше.",11,SECONDARY,false),boxLp(-1,-2,12));
         if (mode == ConvertEngine.VIDEO) {
             settings.addView(txt("Ограничение разрешения", 12, SECONDARY, true), boxLp(-1, -2, 6));
             resolutionSpinner = spinner(ConvertEngine.RESOLUTIONS, savedResolution[mode]);
@@ -1006,6 +1007,7 @@ public final class MainActivity extends Activity {
         return sp;
     }
     private ConvertEngine.Config config() {
+        if(savedQuality[mode]==SmartCompression.QUALITY) return new ConvertEngine.Config(mode,"Исходный",SmartCompression.QUALITY,0,2,performanceChoice);
         return new ConvertEngine.Config(mode, String.valueOf(formatSpinner.getSelectedItem()),
                 qualitySeek == null ? savedQuality[mode] : QUALITY_STAGES[qualitySeek.getProgress()], resolutionSpinner == null ? 0 : resolutionSpinner.getSelectedItemPosition(),
                 bitrateSpinner == null ? 2 : bitrateSpinner.getSelectedItemPosition(), performanceChoice);
@@ -1557,9 +1559,10 @@ public final class MainActivity extends Activity {
         if (shareButton != null) shareButton.setVisibility(exported.isEmpty() ? View.GONE : View.VISIBLE);
         boolean exportingNow = busy && ConversionService.state.exporting;
         if (qualitySeek != null) qualitySeek.setEnabled(!exportingNow);
-        if (formatSpinner != null) formatSpinner.setEnabled(!exportingNow);
-        if (resolutionSpinner != null) resolutionSpinner.setEnabled(!exportingNow);
-        if (bitrateSpinner != null) bitrateSpinner.setEnabled(!exportingNow);
+        boolean smart=savedQuality[mode]==SmartCompression.QUALITY;
+        if (formatSpinner != null) formatSpinner.setEnabled(!exportingNow && !smart);
+        if (resolutionSpinner != null) resolutionSpinner.setEnabled(!exportingNow && !smart);
+        if (bitrateSpinner != null) bitrateSpinner.setEnabled(!exportingNow && !smart);
     }
     private void setStatus(String status, boolean error) {
         if (statusLabel == null) return;
