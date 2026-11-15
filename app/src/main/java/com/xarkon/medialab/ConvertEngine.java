@@ -315,16 +315,17 @@ final class ConvertEngine {
         return new File(directory, "out_" + System.nanoTime() + "." + ext);
     }
 
+    static int threads(int performance){
+        int cores=Math.max(1,Runtime.getRuntime().availableProcessors());
+        return performance==0?Math.min(2,cores):performance==1?Math.min(4,cores):performance==2?Math.max(1,cores-2):cores;
+    }
     static List<String> command(File input, File output, Config cfg, MediaInfo inf, long startMs, long lengthMs) {
         ArrayList<String> args = new ArrayList<>();
         add(args, "-hide_banner", "-nostdin", "-y");
         // Resource profile applies to software decoders, filters and codecs that honor thread count.
         // 0 means automatic thread selection; it does not circumvent Android thermal limits.
-        int processors = Math.max(2, Runtime.getRuntime().availableProcessors());
-        int threads = cfg.performance == 0 ? 2 : cfg.performance == 1 ? 4 :
-                cfg.performance == 2 ? Math.max(2, processors - 2) : processors;
-        String threadCount = String.valueOf(Math.min(32, threads));
-        add(args, "-threads", threadCount);
+        String threadCount = String.valueOf(threads(cfg.performance));
+        add(args, "-threads", threadCount,"-filter_threads",threadCount,"-filter_complex_threads",threadCount);
         if (startMs > 0 && cfg.mode != IMAGE)
             add(args, "-ss", String.format(Locale.US, "%.3f", startMs / 1000.0));
         add(args, "-i", input.getAbsolutePath());

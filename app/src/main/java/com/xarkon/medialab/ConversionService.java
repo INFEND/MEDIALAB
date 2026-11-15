@@ -65,6 +65,7 @@ public final class ConversionService extends Service {
         volatile int earlySampleCount;
         volatile int earlySampleTotal;
         volatile boolean previewUnverified;
+        volatile boolean fullPreview;
         volatile String sourceKey = "";
 
         volatile String format = "mp4";
@@ -77,7 +78,7 @@ public final class ConversionService extends Service {
     static final Snapshot state = new Snapshot();
 
     static Intent request(MainActivity ctx, List<ConvertEngine.Source> sources,
-                          ConvertEngine.Config config, boolean export) {
+                          ConvertEngine.Config config, boolean export,boolean fullPreview) {
         Intent i = new Intent(ctx, ConversionService.class).setAction(ACTION_START);
         ArrayList<Uri> uriList = new ArrayList<>();
         ArrayList<String> names = new ArrayList<>();
@@ -97,6 +98,7 @@ public final class ConversionService extends Service {
         i.putExtra("bitrate", config.audioBitrate);
         i.putExtra("performance", config.performance);
         i.putExtra("export", export);
+        i.putExtra("fullPreview",fullPreview);
         return i;
     }
 
@@ -148,6 +150,7 @@ public final class ConversionService extends Service {
         state.earlySampleCount=0;
         state.earlySampleTotal=0;
         state.previewUnverified=false;
+        state.fullPreview=request.getBooleanExtra("fullPreview",false);
         ArrayList<Uri> requestUris = request.getParcelableArrayListExtra("uris");
         state.sourceKey = requestUris != null && !requestUris.isEmpty() ?
                 requestUris.get(0).toString() : "";
@@ -184,6 +187,9 @@ public final class ConversionService extends Service {
                 request.getIntExtra("resolution", 0), request.getIntExtra("bitrate", 2),
                 request.getIntExtra("performance", 1));
         boolean exporting = request.getBooleanExtra("export", false);
+        boolean fullPreview=request.getBooleanExtra("fullPreview",false)||cfg.quality!=SmartCompression.QUALITY;
+        state.fullPreview=fullPreview;
+        if(cfg.performance==3)try{android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_MORE_FAVORABLE);}catch(Exception ignored){}
         ArrayList<Uri> uris = request.getParcelableArrayListExtra("uris");
         ArrayList<String> names = request.getStringArrayListExtra("names");
         long[] sizes = request.getLongArrayExtra("sizes");
@@ -247,7 +253,7 @@ public final class ConversionService extends Service {
                         }
                     }
                     if (cancellation.get()) break;
-                    ConvertEngine.MediaInfo info = ConvertEngine.info(input);
+                    ConvertEngine.MediaInfo info = itemCfg.mode==ConvertEngine.IMAGE?new ConvertEngine.MediaInfo():ConvertEngine.info(input);
                     durationMs = info.durationMs;
                     if (exporting || itemCfg.mode == ConvertEngine.IMAGE) {
                         segmentsCount = files.size(); segmentIndex = n;
@@ -287,6 +293,7 @@ public final class ConversionService extends Service {
                     } else {
                         final long clipMs = itemCfg.mode == ConvertEngine.VIDEO ? 1200 : 1500;
                         List<Long> positions = ConvertEngine.previewStarts(info.durationMs, clipMs);
+                        if(!fullPreview&&positions.size()>1)positions=java.util.Collections.singletonList(positions.get(positions.size()/2));
                         segmentsCount = positions.size();
                         state.earlySampleTotal=positions.size();
                         state.durationMs=info.durationMs;
@@ -321,7 +328,7 @@ public final class ConversionService extends Service {
                                 // A second preview-only stream is paired with the ORIGINAL
                                 // at exactly this timestamp. The existing converted clip
                                 // remains the source for the size estimate.
-                                if (itemCfg.mode == ConvertEngine.VIDEO) {
+                                if (itemCfg.mode == ConvertEngine.VIDEO && fullPreview) {
                                     File paired = ConvertEngine.outputTemp(this, "mp4");
                                     try {
                                         markFile("Синхронизация: участок " + (p+1) + "/" + positions.size(),

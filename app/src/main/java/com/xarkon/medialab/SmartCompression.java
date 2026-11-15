@@ -31,7 +31,7 @@ final class SmartCompression {
                       long start,long length,boolean preview,ConvertEngine.Canceled canceled,Status status) throws IOException {
         check(canceled);
         Result best=null;
-        if(cfg.mode==ConvertEngine.IMAGE) best=image(ctx,in,preview,canceled,status);
+        if(cfg.mode==ConvertEngine.IMAGE) best=image(ctx,in,preview,cfg.performance,canceled,status);
         else if(cfg.mode==ConvertEngine.VIDEO || cfg.mode==ConvertEngine.AUDIO || cfg.mode==ConvertEngine.EXTRACT)
             best=av(ctx,in,cfg,info,start,length,preview,canceled,status);
         if(canceled.canceled()){if(best!=null)best.file.delete();check(canceled);}
@@ -75,7 +75,7 @@ final class SmartCompression {
             d.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB));
         });
     }
-    private static Result image(Context ctx,File in,boolean preview,ConvertEngine.Canceled c,Status status) throws IOException {
+    private static Result image(Context ctx,File in,boolean preview,int performance,ConvertEngine.Canceled c,Status status) throws IOException {
         Bitmap a=null; Result best=null;
         try{
             a=bitmap(in);
@@ -85,7 +85,7 @@ final class SmartCompression {
                     new String[]{"webp","jpg","png","avif"};
             for(String fmt:formats){
                 int[] qualities="png".equals(fmt)?new int[]{100}:a.hasAlpha()?new int[]{100}:
-                    preview?new int[]{94,98}:new int[]{78,84,90,94,98,100};
+                    preview?new int[]{94,98}:"avif".equals(fmt)?new int[]{94,98}:new int[]{84,94,98,100};
                 for(int q:qualities){
                     check(c);
                     File out=ConvertEngine.outputTemp(ctx,fmt); Bitmap b=null;
@@ -97,7 +97,7 @@ final class SmartCompression {
                             File png=ConvertEngine.outputTemp(ctx,"png");
                             try{
                                 try(OutputStream stream=new FileOutputStream(png)){if(!a.compress(Bitmap.CompressFormat.PNG,100,stream))continue;}
-                                ok=exec(c,"-i",png.getAbsolutePath(),"-frames:v","1","-c:v","libaom-av1","-still-picture","1","-cpu-used","6","-crf",String.valueOf(63-q*45/100),"-b:v","0",out.getAbsolutePath())!=null;
+                                ok=exec(c,"-i",png.getAbsolutePath(),"-frames:v","1","-c:v","libaom-av1","-still-picture","1","-cpu-used","8","-threads",String.valueOf(ConvertEngine.threads(performance)),"-row-mt","1","-crf",String.valueOf(63-q*45/100),"-b:v","0",out.getAbsolutePath())!=null;
                             }finally{png.delete();}
                         } else {
                             Bitmap.CompressFormat codec="jpg".equals(fmt)?Bitmap.CompressFormat.JPEG:
@@ -108,7 +108,7 @@ final class SmartCompression {
                         }
                         if(!ok || out.length()<=0 || out.length()>=in.length() || (best!=null && out.length()>=best.file.length()))continue;
                         b=bitmap(out);
-                        if(!photoPass(a,b,c))continue;
+                        if(!photoPass(a,b,performance,c))continue;
                         if(best!=null)best.file.delete();
                         best=new Result(out,fmt,false);out=null;
                         if(preview)return best; // first quality-approved native candidate
@@ -123,15 +123,27 @@ final class SmartCompression {
         finally{if(a!=null)a.recycle();}
     }
     // Full-resolution, non-overlapping 32x32 local SSIM, Y/Cb/Cr error and exact alpha.
-    private static boolean photoPass(Bitmap a,Bitmap b,ConvertEngine.Canceled c)throws IOException{
+    private static final class PhotoScore { double sum,chroma;long pixels,bad; }
+    private static boolean photoPass(Bitmap a,Bitmap b,int performance,ConvertEngine.Canceled c)throws IOException{
         int w=a.getWidth(),h=a.getHeight();if(w!=b.getWidth()||h!=b.getHeight())return false;
+        int workers=Math.max(1,Math.min(ConvertEngine.threads(performance),(h+31)/32));
+        java.util.concurrent.ForkJoinPool pool=new java.util.concurrent.ForkJoinPool(workers);
+        try{
+            PhotoScore[] scores=pool.submit(()->java.util.stream.IntStream.range(0,workers).parallel().mapToObj(k->photoStripe(a,b,c,k,workers)).toArray(PhotoScore[]::new)).join();
+            check(c);double sum=0,chroma=0;long pixels=0,bad=0;
+            for(PhotoScore score:scores){if(score==null)return false;sum+=score.sum;chroma+=score.chroma;pixels+=score.pixels;bad+=score.bad;}
+            return pixels>0&&sum/pixels>=.990&&chroma/(2*pixels)<=2.5&&bad/(2.0*pixels)<=.05;
+        }finally{pool.shutdown();}
+    }
+    private static PhotoScore photoStripe(Bitmap a,Bitmap b,ConvertEngine.Canceled c,int index,int workers){
+        int w=a.getWidth(),h=a.getHeight();
         int[] x=new int[1024],y=new int[1024];double sum=0,chroma=0;long pixels=0,bad=0;
-        for(int j=0;j<h;j+=32)for(int i=0;i<w;i+=32){
-            check(c);int tw=Math.min(32,w-i),th=Math.min(32,h-j),n=tw*th;
+        for(int j=index*32;j<h;j+=workers*32)for(int i=0;i<w;i+=32){
+            if(c.canceled())return null;int tw=Math.min(32,w-i),th=Math.min(32,h-j),n=tw*th;
             a.getPixels(x,0,tw,i,j,tw,th);b.getPixels(y,0,tw,i,j,tw,th);
             double sa=0,sb=0,saa=0,sbb=0,sab=0;
             for(int k=0;k<n;k++){
-                if((x[k]>>>24)!=(y[k]>>>24))return false;
+                if((x[k]>>>24)!=(y[k]>>>24))return null;
                 if((x[k]>>>24)==0)continue;
                 int ar=(x[k]>>16)&255,ag=(x[k]>>8)&255,ab=x[k]&255;
                 int br=(y[k]>>16)&255,bg=(y[k]>>8)&255,bb=y[k]&255;
@@ -142,10 +154,10 @@ final class SmartCompression {
             }
             double m=sa/n,v=sb/n,va=Math.max(0,saa/n-m*m),vb=Math.max(0,sbb/n-v*v),cov=sab/n-m*v;
             double score=((2*m*v+6.5025)*(2*cov+58.5225))/((m*m+v*v+6.5025)*(va+vb+58.5225));
-            if(score<.965)return false;
+            if(score<.965)return null;
             sum+=score*n;pixels+=n;
         }
-        return pixels>0 && sum/pixels>=.990 && chroma/(2*pixels)<=2.5 && bad/(2.0*pixels)<=.05;
+        PhotoScore r=new PhotoScore();r.sum=sum;r.chroma=chroma;r.pixels=pixels;r.bad=bad;return r;
     }
 
     private static FFmpegSession exec(ConvertEngine.Canceled c,String... tail)throws IOException{
@@ -169,53 +181,78 @@ final class SmartCompression {
         }
         if(video && (videos!=1 || props.contains("smpte2084") || props.contains("arib-std-b67") || props.contains("dovi")))return null;
         if(!video && (audios!=1 || (cfg.mode==ConvertEngine.AUDIO && mi.getStreams().size()!=1)))return null;
-        // VP9 / HEVC are probed by the encoder itself. No assumptions about optional native codecs.
-        String[] codecs=video?new String[]{"libx265","libvpx-vp9","libx264"}:new String[]{"libopus","aac","flac"};
-        Result best=null;
-        try{
-            for(String codec:codecs){
-                String fmt=video?"mkv":"libopus".equals(codec)?"opus":"aac".equals(codec)?"m4a":"flac";
-                int[] steps=video?(preview?new int[]{20,16}:new int[]{28,24,20,16}): "flac".equals(codec)?new int[]{8}:new int[]{160,192,256,320};
-                for(int q:steps){
-                    check(c);File out=ConvertEngine.outputTemp(ctx,fmt);
-                    try{
-                        status.update("ASC PRO · "+(video?"видео":"аудио")+": "+codec+" "+q+" · кодирование");
-                        ArrayList<String> a=new ArrayList<>();seek(a,start);Collections.addAll(a,"-i",in.getAbsolutePath());duration(a,length);
-                        if(video){
-                            if(length>0)Collections.addAll(a,"-map","0:v:0","-map","0:a?");
-                            else Collections.addAll(a,"-map","0");
-                            Collections.addAll(a,"-c","copy","-c:v:0",codec,"-crf",String.valueOf(q));
-                            if("libx265".equals(codec))Collections.addAll(a,"-preset",preview?"ultrafast":"fast","-x265-params","log-level=error");
-                            else if("libx264".equals(codec))Collections.addAll(a,"-preset",preview?"ultrafast":"fast");
-                            else Collections.addAll(a,"-b:v:0","0","-deadline","good","-cpu-used",preview?"6":"4");
-                        }else{
-                            Collections.addAll(a,"-map","0:a:0","-vn","-c:a",codec);
-                            if("flac".equals(codec))Collections.addAll(a,"-compression_level","8");
-                            else Collections.addAll(a,"-b:a",q+"k");
-                        }
-                        Collections.addAll(a,"-map_metadata","0",out.getAbsolutePath());
-                        if(exec(c,a.toArray(new String[0]))==null || out.length()<=0)break;
-                        if(length==0 && cfg.mode!=ConvertEngine.EXTRACT && out.length()>=in.length())continue;
-                        if(best!=null && out.length()>=best.file.length())continue;
-                        long target=length>0?length:inf.durationMs, actual=ConvertEngine.info(out).durationMs;
-                        if(target>0 && (actual<=0 || Math.abs(actual-target)>Math.max(length>0?350:120,target/100)))continue;
-                        status.update("ASC PRO · "+codec+" · проверка "+(video?"кадров":"звука"));
-                        boolean pass=video?videoPass(ctx,in,out,start,length,c):audioPass(in,out,start,length,c,"flac".equals(codec));
-                        if(!pass)continue;
-                        if(best!=null)best.file.delete();best=new Result(out,fmt,false);out=null;
-                        break;
-                    }finally{if(out!=null)out.delete();}
-                }
-                // Full video evaluation is expensive; use the second codec as a fallback.
-                if(video && best!=null)break;
+        // Probe short scenes first; do not repeatedly encode the full input.
+        String[] codecs=video?new String[]{"hevc_mediacodec","libx265","libx264","libvpx-vp9"}:new String[]{"libopus","aac","flac"};
+        long probeLength=length>0?length:Math.min(video?1600:2500,inf.durationMs);
+        long probeStart=length>0?start:Math.max(0,(inf.durationMs-probeLength)/2);
+        if(probeLength<=0)return null;
+        long bitrate=inf.durationMs>0?Math.max(100000,Math.min(100000000,(long)(in.length()*8000.0/inf.durationMs*.80))):4000000;
+        for(String codec:codecs){
+            int[] steps=video?("hevc_mediacodec".equals(codec)?new int[]{0}:new int[]{20,16}):
+                    "flac".equals(codec)?new int[]{5}:new int[]{192,320};
+            for(int q:steps){
+                check(c);
+                status.update("ASC PRO · тест "+codec+" "+q);
+                Result test=encodeCandidate(ctx,in,cfg,codec,q,bitrate,probeStart,probeLength,c);
+                if(test==null)break;
+                boolean pass=false;
+                try{
+                    pass=checkCandidate(ctx,in,test,video,probeStart,probeLength,cfg.performance,c);
+                    if(pass&&preview){Result result=test;test=null;return result;}
+                }finally{if(test!=null)test.file.delete();}
+                if(!pass)continue;
+                status.update("ASC PRO · основное кодирование "+codec);
+                Result full=encodeCandidate(ctx,in,cfg,codec,q,bitrate,0,0,c);
+                if(full==null)return null;
+                try{
+                    if(cfg.mode!=ConvertEngine.EXTRACT && full.file.length()>=in.length())return null;
+                    long actual=ConvertEngine.info(full.file).durationMs;
+                    if(inf.durationMs>0 && (actual<=0||Math.abs(actual-inf.durationMs)>Math.max(120,inf.durationMs/100)))return null;
+                    status.update("ASC PRO · полный контроль качества "+codec);
+                    if(!checkCandidate(ctx,in,full,video,0,0,cfg.performance,c))return null;
+                    Result result=full;full=null;return result;
+                }finally{if(full!=null)full.file.delete();}
             }
-            return best;
-        }catch(IOException|RuntimeException ex){if(best!=null)best.file.delete();throw ex;}
+        }
+        return null;
     }
-    private static boolean videoPass(Context ctx,File in,File out,long start,long length,ConvertEngine.Canceled c)throws IOException{
+    private static Result encodeCandidate(Context ctx,File in,ConvertEngine.Config cfg,String codec,int q,long bitrate,long start,long length,ConvertEngine.Canceled c)throws IOException{
+        boolean video=cfg.mode==ConvertEngine.VIDEO;
+        String fmt=video?"mkv":"libopus".equals(codec)?"opus":"aac".equals(codec)?"m4a":"flac";
+        File out=ConvertEngine.outputTemp(ctx,fmt);
+        try{
+            String n=String.valueOf(ConvertEngine.threads(cfg.performance));
+            ArrayList<String> a=new ArrayList<>(Arrays.asList("-threads",n,"-filter_threads",n,"-filter_complex_threads",n));
+            seek(a,start);Collections.addAll(a,"-i",in.getAbsolutePath());duration(a,length);
+            if(video){
+                if(length>0)Collections.addAll(a,"-map","0:v:0","-map","0:a?");
+                else Collections.addAll(a,"-map","0");
+                Collections.addAll(a,"-c","copy","-c:v:0",codec);
+                if("hevc_mediacodec".equals(codec))Collections.addAll(a,"-b:v:0",String.valueOf(bitrate),"-pix_fmt","yuv420p");
+                else {
+                    Collections.addAll(a,"-crf",String.valueOf(q));
+                    if("libx265".equals(codec))Collections.addAll(a,"-preset","veryfast","-x265-params","log-level=error");
+                    else if("libx264".equals(codec))Collections.addAll(a,"-preset","veryfast");
+                    else Collections.addAll(a,"-b:v:0","0","-deadline","good","-cpu-used","6","-row-mt","1");
+                }
+            }else{
+                Collections.addAll(a,"-map","0:a:0","-vn","-c:a",codec);
+                if("flac".equals(codec))Collections.addAll(a,"-compression_level","5");
+                else Collections.addAll(a,"-b:a",q+"k");
+            }
+            Collections.addAll(a,"-threads",n,"-map_metadata","0",out.getAbsolutePath());
+            if(exec(c,a.toArray(new String[0]))==null||out.length()<=0)return null;
+            Result result=new Result(out,fmt,false);out=null;return result;
+        }finally{if(out!=null)out.delete();}
+    }
+    private static boolean checkCandidate(Context ctx,File in,Result result,boolean video,long start,long length,int performance,ConvertEngine.Canceled c)throws IOException{
+        return video?videoPass(ctx,in,result.file,start,length,performance,c):audioPass(in,result.file,start,length,c,"flac".equals(result.format));
+    }
+    private static boolean videoPass(Context ctx,File in,File out,long start,long length,int performance,ConvertEngine.Canceled c)throws IOException{
         File stats=ConvertEngine.outputTemp(ctx,"txt");
         try{
-            ArrayList<String> a=new ArrayList<>();seek(a,start);Collections.addAll(a,"-i",in.getAbsolutePath(),"-i",out.getAbsolutePath());
+            String n=String.valueOf(ConvertEngine.threads(performance));
+            ArrayList<String> a=new ArrayList<>(Arrays.asList("-filter_complex_threads",n,"-threads",n));seek(a,start);Collections.addAll(a,"-i",in.getAbsolutePath(),"-threads",n,"-i",out.getAbsolutePath());
             Collections.addAll(a,"-filter_complex","[0:v:0]setpts=PTS-STARTPTS[x];[1:v:0]setpts=PTS-STARTPTS[y];[x][y]ssim=shortest=1:stats_file="+stats.getAbsolutePath(),
                     "-an");duration(a,length);Collections.addAll(a,"-f","null","-");
             if(exec(c,a.toArray(new String[0]))==null || !stats.isFile())return false;

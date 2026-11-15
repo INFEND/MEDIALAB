@@ -59,7 +59,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Main activity: MediaLAB 1.3.0 - QR LINK visual skin (business logic retained). */
 public final class MainActivity extends Activity {
-    private static final int PICK = 1217;
+    private static final int PICK = 1217, PICK_FOLDER = 1218;
+    private int folderMode;
+    private boolean previewFull;
     private int BG = Color.rgb(9, 15, 27);
     private int CARD = Color.rgb(17, 27, 45);
     private int CARD2 = Color.rgb(26, 41, 64);
@@ -72,7 +74,7 @@ public final class MainActivity extends Activity {
     private static final String[] THEME_NAMES = {"Тёмная", "AMOLED", "Светлая"};
     private static final String[] ACCENT_NAMES = QrLook.NAMES;
     private static final int[] ACCENT_COLORS = QrLook.COLORS;
-    private static final String[] PERFORMANCE_NAMES = {"Экономный · 2 потока", "Сбалансированный · 4 потока", "Быстрый · почти все ядра", "Максимальный · все ядра"};
+    private static final String[] PERFORMANCE_NAMES = {"Экономный · 2 потока", "Сбалансированный · 4 потока", "Быстрый · почти все ядра", "Максимальный · CPU + аппаратные кодеки"};
     private static final String[] BITRATES = {"96 Кбит/с", "128 Кбит/с", "192 Кбит/с", "320 Кбит/с"};
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -165,7 +167,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         themeChoice = getPreferences(MODE_PRIVATE).getInt("theme", 0);
         accentChoice = getPreferences(MODE_PRIVATE).getInt("accent", 0);
-        performanceChoice = Math.max(0, Math.min(3, getPreferences(MODE_PRIVATE).getInt("performance", 3)));
+        performanceChoice = Math.max(0, Math.min(3, getPreferences(MODE_PRIVATE).getInt("performance_v2", 3)));
         for (int m = 0; m < 4; m++) {
             savedQuality[m] = QUALITY_STAGES[stageIndex(getPreferences(MODE_PRIVATE).getInt("q"+m, 70))];
             int previous=getPreferences(MODE_PRIVATE).getInt("f"+m, -1);
@@ -335,7 +337,7 @@ public final class MainActivity extends Activity {
         LinearLayout performance=settingsGroup(body,"Производительность","Режимы использования ресурсов",android.R.drawable.ic_menu_manage);
         final LinearLayout[] cards=new LinearLayout[4];
         String[] descriptions={"Минимальный нагрев", "Подходит для повседневной обработки",
-            "Повышенная производительность", "Максимальная доступная нагрузка"};
+            "Повышенная производительность", "Все доступные потоки, приоритет обработки и аппаратное кодирование при поддержке"};
         for(int k=0;k<PERFORMANCE_NAMES.length;k++) {
             final int chosen=k;
             boolean selected=k==performanceChoice;
@@ -351,7 +353,7 @@ public final class MainActivity extends Activity {
             performance.addView(line,boxLp(-1,dp(67),7));
             line.setOnClickListener(v->{
                 performanceChoice=chosen;
-                getPreferences(MODE_PRIVATE).edit().putInt("performance",chosen).apply();
+                getPreferences(MODE_PRIVATE).edit().putInt("performance_v2",chosen).apply();
                 cacheSettings();
                 for(int n=0;n<cards.length;n++) {
                     if(cards[n]==null)continue;
@@ -479,6 +481,7 @@ public final class MainActivity extends Activity {
 
     private void schedulePreview() {
         ui.removeCallbacks(autoPreview);
+        openPreviewWhenReady=false;
         if (queue.isEmpty()) {
             estimateTicket.incrementAndGet();
             fastEstimatedBytes = -1;
@@ -527,10 +530,13 @@ public final class MainActivity extends Activity {
 
     private void openFullPreview() {
         if (queue.isEmpty()) return;
-        if (previewParts.isEmpty() || previewOutput == null || !previewOutput.exists()) {
+        if(ConversionService.state.running&&ConversionService.state.exporting)return;
+        if (previewParts.isEmpty() || previewOutput == null || !previewOutput.exists() || (mode!=ConvertEngine.IMAGE && !previewFull)) {
             openPreviewWhenReady = true;
-            if (!(ConversionService.state.running && !ConversionService.state.exporting))
-                schedulePreview();
+            if (!(ConversionService.state.running && !ConversionService.state.exporting)) {
+                ui.removeCallbacks(autoPreview);
+                perform(false);
+            }
             setStatus("Создаётся предпросмотр для полноэкранного просмотра…", false);
             return;
         }
@@ -598,9 +604,11 @@ public final class MainActivity extends Activity {
                 previewDurationMs = s.durationMs;
                 previewSampledMs = s.samplesMs;
                 previewUnverified = s.previewUnverified;
+                previewFull=s.fullPreview;
                 if (pendingAutoPreview) { previewParts.clear(); pairedParts.clear(); previewOutput = null; previewSettings = null; }
                 if (!queue.isEmpty() && estimateBox != null) renderPreviews();
                 if (!previewParts.isEmpty() && !pendingAutoPreview && openPreviewWhenReady) ui.post(this::openFullPreview);
+                else if(s.error)openPreviewWhenReady=false;
             }
             if (!s.results.isEmpty()) {
                 exported.clear(); synchronized (s.results) { exported.addAll(s.results); }
@@ -859,7 +867,7 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams p = boxLp(-2, -2, 0); p.rightMargin = dp(7);
             tabs.addView(tab, p);
             tab.setOnClickListener(v -> {
-                if (busy || mode == dest) return;
+                if (busy || pickerAnalyzing || mode == dest) return;
                 cacheSettings();
                 mode = dest;
                 queue.clear(); selected = 0; clearPreview(); clearStaged(); exported.clear();
@@ -874,6 +882,9 @@ public final class MainActivity extends Activity {
         Button pick = button("＋  Выбрать файлы", true);
         pick.setOnClickListener(v -> openPicker());
         source.addView(pick, boxLp(-1, dp(49), 12));
+        Button folder=button("▣  Выбрать папку",false);
+        folder.setOnClickListener(v->openFolder());
+        source.addView(folder,boxLp(-1,dp(49),7));
         filesContainer = vertical(); source.addView(filesContainer);
         renderFiles();
 
@@ -931,7 +942,7 @@ public final class MainActivity extends Activity {
         }
 
         LinearLayout comparison = card(13);
-        header(comparison, "03  ◧  Предпросмотр", "Сцены на 15% · 30% · 50% · 70% · 80%");
+        header(comparison, "03  ◧  Предпросмотр", "Быстрая оценка · полный просмотр по кнопке");
         originalBox = vertical(); resultBox = vertical();
         estimateBox = vertical();
         comparison.addView(estimateBox, boxLp(-1, -2, 12));
@@ -1049,8 +1060,69 @@ public final class MainActivity extends Activity {
         try { startActivityForResult(intent, PICK); }
         catch (Exception ex) { setStatus("Проводник файлов недоступен: " + ex.getMessage(), true); }
     }
+    private void openFolder(){
+        if(pickerAnalyzing || (ConversionService.state.running && ConversionService.state.exporting))return;
+        folderMode=mode;
+        Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION|Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        try{startActivityForResult(i,PICK_FOLDER);}catch(Exception e){setStatus("Выбор папки недоступен: "+e.getMessage(),true);}
+    }
+    private void importFolder(Intent data){
+        Uri tree=data.getData();if(tree==null||pickerAnalyzing)return;
+        final int requested=folderMode;
+        final int kind=requested==ConvertEngine.EXTRACT?ConvertEngine.VIDEO:requested;
+        final int room=Math.max(0,1000-queue.size());
+        if(room==0){setStatus("Очередь заполнена: 1000 файлов",true);return;}
+        try{getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
+        pickerAnalyzing=true;setStatus("Сканируем папку и подпапки…",false);
+        executor.execute(()->{
+            ArrayList<ConvertEngine.Source> found=new ArrayList<>();
+            java.util.ArrayDeque<String> dirs=new java.util.ArrayDeque<>();
+            java.util.HashSet<String> seen=new java.util.HashSet<>();
+            String error=null;boolean capped=false;int inaccessible=0;
+            try{
+                dirs.add(android.provider.DocumentsContract.getTreeDocumentId(tree));
+                String[] columns={android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    android.provider.DocumentsContract.Document.COLUMN_SIZE};
+                while(!dirs.isEmpty()&&!Thread.currentThread().isInterrupted()&&found.size()<room){
+                    String id=dirs.removeFirst();if(!seen.add(id))continue;
+                    Uri children=android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree,id);
+                    try(android.database.Cursor cursor=getContentResolver().query(children,columns,null,null,null)){
+                        if(cursor==null){inaccessible++;continue;}
+                        while(cursor.moveToNext()){
+                            if(Thread.currentThread().isInterrupted())break;
+                            String child=cursor.getString(0),name=cursor.getString(1),mime=cursor.getString(2);
+                            if(child==null)continue;
+                            if(android.provider.DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)){dirs.addLast(child);continue;}
+                            if(name==null||ConvertEngine.classify(mime,name)!=kind)continue;
+                            long bytes=cursor.isNull(3)?-1:cursor.getLong(3);
+                            Uri uri=android.provider.DocumentsContract.buildDocumentUriUsingTree(tree,child);
+                            found.add(new ConvertEngine.Source(uri,name,bytes));
+                            if(found.size()>=room){capped=true;break;}
+                        }
+                    }catch(Exception e){inaccessible++;}
+                }
+            }catch(Exception e){error=e.getMessage();}
+            final String failure=error;
+            final boolean limit=capped;
+            final int skipped=inaccessible;
+            ui.post(()->{
+                pickerAnalyzing=false;
+                if(isFinishing()||isDestroyed())return;
+                if(mode!=requested){setStatus("Вкладка изменилась. Выберите папку заново.",true);return;}
+                if(failure!=null){setStatus("Не удалось прочитать папку: "+failure,true);return;}
+                if(found.isEmpty()){setStatus("В папке нет доступных файлов категории «"+MODES[requested]+"»",skipped>0);return;}
+                found.sort((a,b)->a.name.compareToIgnoreCase(b.name));
+                applyDetectedFiles(found,kind,"Из папки найдено: "+found.size()+" · "+MODES[requested]+
+                    (limit?" · достигнут лимит очереди 1000":"")+(skipped>0?" · недоступных папок: "+skipped:""));
+            });
+        });
+    }
     @Override protected void onActivityResult(int req, int result, Intent data) {
         super.onActivityResult(req, result, data);
+        if(req==PICK_FOLDER){if(result==RESULT_OK&&data!=null&&!(ConversionService.state.running&&ConversionService.state.exporting))importFolder(data);return;}
         if (req != PICK || result != RESULT_OK || data == null || pickerAnalyzing ||
                 (ConversionService.state.running && ConversionService.state.exporting)) return;
         ArrayList<Uri> uris = new ArrayList<>();
@@ -1147,7 +1219,7 @@ public final class MainActivity extends Activity {
             boolean exists=false;
             for(ConvertEngine.Source current:queue)
                 if(current.uri.equals(source.uri)){exists=true;break;}
-            if(!exists){queue.add(source);added++;}
+            if(!exists&&queue.size()<1000){queue.add(source);added++;}
         }
         if(added==0){setStatus("Выбранные файлы уже находятся в очереди",false);return;}
         exported.clear();clearPreview();clearStaged();
@@ -1250,7 +1322,7 @@ public final class MainActivity extends Activity {
     private void clearPreview() {
         stopPlayback();
         previewParts.clear(); pairedParts.clear();
-        previewOutput = null; previewSettings = null; previewDurationMs = 0; previewSampledMs = 0; previewUnverified=false;
+        previewOutput = null; previewSettings = null; previewDurationMs = 0; previewSampledMs = 0; previewUnverified=false; previewFull=false;
         lastJobRevision = ConversionService.state.revision;
     }
     private void clearStaged() {
@@ -1625,7 +1697,7 @@ public final class MainActivity extends Activity {
             openPreviewWhenReady = false;
         } else clearPreview();
         try {
-            Intent intent = ConversionService.request(this, chosen, cfg, exporting);
+            Intent intent = ConversionService.request(this, chosen, cfg, exporting,openPreviewWhenReady);
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
             else startService(intent);
             busy = true;
