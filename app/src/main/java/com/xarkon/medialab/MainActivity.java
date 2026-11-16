@@ -648,12 +648,16 @@ public final class MainActivity extends Activity {
             else ui.postDelayed(autoPreview, 250);
         }
         updateEstimateAnimation();
-        if (progressBar != null) progressBar.setProgress(s.progress);
-        if (fileProgressBar != null) fileProgressBar.setProgress(s.fileProgress);
-        if (totalProgressLabel != null) totalProgressLabel.setText("Общий прогресс   " + s.progress + "%");
-        if (fileProgressLabel != null) fileProgressLabel.setText("Текущий файл " + s.fileNumber + "/" + s.fileCount + "   " + s.fileProgress + "%");
-        if (statusLabel != null && !pickerAnalyzing && (busy || wasBusy))
-            setStatus(s.status, s.error);
+        // Preview has its own progress and error panel; it is not a failed export.
+        if (s.exporting) {
+            if (progressBar != null) progressBar.setProgress(s.progress);
+            if (fileProgressBar != null) fileProgressBar.setProgress(s.fileProgress);
+            if (totalProgressLabel != null) totalProgressLabel.setText("Общий прогресс   " + s.progress + "%");
+            if (fileProgressLabel != null) fileProgressLabel.setText("Текущий файл " + s.fileNumber + "/" + s.fileCount + "   " + s.fileProgress + "%");
+            if (statusLabel != null && !pickerAnalyzing && (busy || wasBusy)) setStatus(s.status,s.error);
+        } else if (wasBusy && !busy && statusLabel != null && !pickerAnalyzing) {
+            setStatus("Готово к конвертации",false);
+        }
     }
     private void showEmergencyScreen(Throwable problem) {
         try {

@@ -57,6 +57,9 @@ jobs:
           test "$(stat -c%s app/libs/ffmpeg-kit-full-8.1.9.aar)" -eq 31057330
           echo 'Verified input; Java bridge only will be included in APK.'
 
+      - name: Regression test central video sample with copied audio
+        run: python3 scripts/test_video_sample.py
+
       - name: Compile Android release
         run: gradle --no-daemon --stacktrace :app:assembleRelease
 

@@ -49,7 +49,7 @@ final class SmartCompression {
         if(best!=null && (length>0 || cfg.mode==ConvertEngine.EXTRACT || best.file.length()<in.length())) return best;
         if(best!=null) best.file.delete();
         if(length>0 || cfg.mode==ConvertEngine.EXTRACT)
-            throw new IOException("ASC PRO: ни один вариант не прошёл контроль качества. Реальный сжатый предпросмотр недоступен; исходник сохранён.");
+            throw new IOException("ASC PRO: ни один вариант не прошёл контроль качества. Реальный сжатый предпросмотр недоступен; исходный файл не изменён.");
         status.update("ASC PRO: исходник уже оптимален или проверка качества не пройдена");
         if(!preview)return new Result(in,ext(in),true); // caller owns source; no redundant temporary copy
         File copy=ConvertEngine.outputTemp(ctx,ext(in));
@@ -185,7 +185,10 @@ final class SmartCompression {
             if("video".equals(stream.getType()))videos++;
             if("audio".equals(stream.getType()))audios++;
         }
-        if(video && (videos!=1 || props.contains("smpte2084") || props.contains("arib-std-b67") || props.contains("dovi")))return null;
+        if(video && (videos!=1 || props.contains("smpte2084") || props.contains("arib-std-b67") || props.contains("dovi"))){
+            if(preview)throw new IOException(videos!=1?"ASC PRO: требуется одна видеодорожка; исходный файл не изменён.":"ASC PRO: HDR / Dolby Vision требует сохранения расширенного цветового диапазона. Сжатие не подтверждено; исходный файл не изменён.");
+            return null;
+        }
         if(!video && (audios<1 || (cfg.mode==ConvertEngine.AUDIO && (audios!=1 || mi.getStreams().size()!=1))))return null;
         // Exactly the same codec settings for the real 5-second sample and export.
         // A cached plan is keyed by URI, size, modification date and performance mode.
@@ -205,19 +208,20 @@ final class SmartCompression {
         if(probeLength<=0)return null;
         long bitrate=inf.durationMs>0?Math.max(100000,Math.min(100000000,(long)(in.length()*8000.0/inf.durationMs*.80))):4000000;
         for(String codec:codecs){
-            int[] steps=video?("hevc_mediacodec".equals(codec)?new int[]{0}:cfg.performance==3?new int[]{18,10}:new int[]{20,16,12,8}):
+            int[] steps=video?("hevc_mediacodec".equals(codec)?new int[]{0}:cfg.performance==3?new int[]{18,10,4}:new int[]{20,16,12,8,4}):
                     "flac".equals(codec)?new int[]{5}:new int[]{192,320};
             for(int q:steps){
                 check(c);
                 Plan candidate=new Plan(codec,q,bitrate);
                 status.update("ASC PRO · проверка реального фрагмента "+codec);
                 Result test=encodeCandidate(ctx,in,cfg,codec,q,bitrate,probeStart,probeLength,c);
-                if(test==null)break;
+                if(test==null){android.util.Log.w("MediaLAB_ASC","Encoder unavailable or failed: "+codec);break;}
                 boolean pass=false;
                 try{
                     long actual=ConvertEngine.info(test.file).durationMs;
-                    pass=actual>0&&Math.abs(actual-probeLength)<=Math.max(350,probeLength/100)&&
-                        checkCandidate(ctx,in,test,video,probeStart,probeLength,cfg.performance,c);
+                    boolean durationOk=actual>0&&Math.abs(actual-probeLength)<=Math.max(350,probeLength/100);
+                    pass=durationOk&&checkCandidate(ctx,in,test,video,probeStart,probeLength,cfg.performance,c);
+                    if(!pass)android.util.Log.w("MediaLAB_ASC",codec+" CRF/quality "+q+": "+(durationOk?"quality gate":"duration "+actual+" ms, expected "+probeLength+" ms"));
                     if(pass){
                         remember(sourceKey,candidate);
                         if(preview){Result result=test;test=null;return result;}
@@ -253,11 +257,16 @@ final class SmartCompression {
         try{
             String n=String.valueOf(ConvertEngine.threads(cfg.performance));
             ArrayList<String> a=new ArrayList<>(Arrays.asList("-threads",n,"-filter_threads",n,"-filter_complex_threads",n));
-            seek(a,start);Collections.addAll(a,"-i",in.getAbsolutePath());duration(a,length);
+            seek(a,start);Collections.addAll(a,"-i",in.getAbsolutePath());
+            // Input-side seek decodes video accurately but copied audio can retain
+            // packets from the previous keyframe. Output-side zero seek discards
+            // negative preroll without decoding the entire preceding movie.
+            if(video&&length>0)Collections.addAll(a,"-ss","0");
+            duration(a,length);
             if(video){
                 // Preserve original frame cadence; Matroska rounds timestamps to milliseconds.
                 Collections.addAll(a,"-fps_mode:v:0","passthrough");
-                if(length>0)Collections.addAll(a,"-map","0:v:0","-map","0:a:0?");
+                if(length>0)Collections.addAll(a,"-map","0:v:0","-map","0:a?");
                 else Collections.addAll(a,"-map","0");
                 Collections.addAll(a,"-c","copy","-c:v:0",codec);
                 // Audio is copied in both sample and export; only the comparison player converts it.
