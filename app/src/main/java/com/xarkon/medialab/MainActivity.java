@@ -1382,8 +1382,12 @@ public final class MainActivity extends Activity {
         if (!ConversionService.state.running && ConversionService.state.error &&
                 !queue.isEmpty() && queue.get(selected).uri.toString().equals(ConversionService.state.sourceKey) &&
                 previewParts.isEmpty() && !pendingAutoPreview) {
-            estimateBox.addView(txt("Не удалось подготовить образец",13,0xffff9199,true),boxLp(-1,-2,6));
-            estimateBox.addView(txt(ConversionService.state.status,11,SECONDARY,false),boxLp(-1,-2,7));
+            estimateBox.addView(txt("Не удалось подготовить проверенный образец",13,0xffff9199,true),boxLp(-1,-2,6));
+            TextView reason=txt(ConversionService.state.status,11,SECONDARY,false);
+            reason.setTextIsSelectable(true);
+            estimateBox.addView(reason,boxLp(-1,-2,7));
+            if(mode==ConvertEngine.VIDEO && savedQuality[mode]==SmartCompression.QUALITY)
+                estimateBox.addView(txt("Можно скопировать причину отказа. Для просмотра без ASC PRO выберите ручной уровень качества.",11,SECONDARY,false),boxLp(-1,-2,6));
             if (fastEstimatedBytes > 0) estimateBox.addView(txt((savedQuality[mode]==SmartCompression.QUALITY?"Верхняя граница ≤ ":"Предварительно ≈ ")+
                     ConvertEngine.humanBytes(fastEstimatedBytes),15,BLUE,true));
             return;
