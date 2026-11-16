@@ -69,7 +69,12 @@ jobs:
           python3 scripts/test_asc_full.py
 
       - name: Compile Android release
-        run: gradle --no-daemon --stacktrace :app:assembleRelease
+        shell: bash
+        run: |
+          if ! gradle --no-daemon --stacktrace :app:assembleRelease; then
+            echo 'Retrying with refreshed Gradle dependencies'
+            gradle --no-daemon --refresh-dependencies --stacktrace :app:assembleRelease
+          fi
 
       - name: Verify lightweight APK and external ARM64 pack
         shell: bash
