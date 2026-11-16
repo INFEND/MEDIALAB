@@ -8,7 +8,7 @@ final class AscVideoOptions {
     static Set<String> parse(String output){
         Set<String> encoders=new HashSet<>();
         if(output!=null){
-            Matcher matcher=Pattern.compile("(?m)^\\s*V[A-Z.]{5}\\s+([a-zA-Z0-9_]+)\\s").matcher(output);
+            Matcher matcher=Pattern.compile("(?m)^\\s*V[A-Z.]{5}\\s+([a-zA-Z0-9_-]+)\\s").matcher(output);
             while(matcher.find())encoders.add(matcher.group(1));
         }
         return encoders;
