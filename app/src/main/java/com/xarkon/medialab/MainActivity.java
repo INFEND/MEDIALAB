@@ -59,7 +59,51 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Main activity: MediaLAB 1.3.0 - QR LINK visual skin (business logic retained). */
 public final class MainActivity extends Activity {
-    private static final int PICK = 1217, PICK_FOLDER = 1218;
+    private static final int PICK = 1217, PICK_FOLDER = 1218, PICK_OUTPUT = 1219, PICK_REPLACE_ACCESS = 1220;
+    private Uri outputTree;
+    private boolean originalNames, replaceOriginals=false, replaceConfirmed=false;
+    private int parallelWorkers=2;
+    private Button outputFolderButton,sourceAccessButton,resetOutputButton;
+    private android.widget.Switch namesSwitch,replaceSwitch;
+    private Spinner workersSpinner;
+    private android.content.SharedPreferences outputPrefs(){return getSharedPreferences(OutputPolicy.PREF,MODE_PRIVATE);}
+    private void readOutputPrefs(){
+        String saved=outputPrefs().getString(OutputPolicy.TREE,"");
+        outputTree=saved.isEmpty()?null:Uri.parse(saved);
+        originalNames=outputPrefs().getBoolean(OutputPolicy.NAMES,false);
+        parallelWorkers=Math.max(1,Math.min(4,outputPrefs().getInt(OutputPolicy.WORKERS,2)));
+    }
+    private void chooseOutputTree(boolean sourceAccess){
+        if(ConversionService.state.running&&ConversionService.state.exporting)return;
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION|Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        if(!sourceAccess&&outputTree!=null)intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI,outputTree);
+        try{startActivityForResult(intent,sourceAccess?PICK_REPLACE_ACCESS:PICK_OUTPUT);}
+        catch(Exception ex){setStatus("Выбор папки недоступен: "+ex.getMessage(),true);}
+    }
+    private void refreshOutputControls(){
+        if(outputFolderButton!=null)outputFolderButton.setText("Папка: "+OutputPolicy.folderLabel(this,outputTree));
+        if(sourceAccessButton!=null)sourceAccessButton.setVisibility(replaceOriginals?View.VISIBLE:View.GONE);
+        if(resetOutputButton!=null)resetOutputButton.setVisibility(outputTree==null?View.GONE:View.VISIBLE);
+    }
+    private void acceptOutputTree(Intent data,boolean sourceAccess){
+        Uri tree=data.getData();if(tree==null)return;
+        int grant=data.getFlags()&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        if((grant&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION))!=
+                (Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION)){
+            setStatus("Папка не предоставила право записи",true);return;
+        }
+        try{
+            getContentResolver().takePersistableUriPermission(tree,grant);
+            if(!OutputPolicy.hasWrite(this,tree))throw new SecurityException("Не удалось сохранить доступ");
+            if(!sourceAccess){
+                outputTree=tree;outputPrefs().edit().putString(OutputPolicy.TREE,tree.toString()).apply();
+                refreshOutputControls();
+                setStatus("Папка сохранения выбрана",false);
+            }else setStatus("Доступ к исходной папке предоставлен",false);
+        }catch(Exception ex){setStatus("Нет доступа к папке: "+ex.getMessage(),true);}
+    }
     private int folderMode;
     private boolean previewFull;
     private boolean previewSourceOnly;
@@ -167,6 +211,7 @@ public final class MainActivity extends Activity {
                 R.style.Accent_Turquoise, R.style.Accent_Mint, R.style.Accent_Teal, R.style.Accent_Indigo, R.style.Accent_Lavender, R.style.Accent_Lilac, R.style.Accent_Purple, R.style.Accent_Fuchsia, R.style.Accent_Raspberry, R.style.Accent_Coral, R.style.Accent_Orange, R.style.Accent_Gold, R.style.Accent_Lime, R.style.Accent_Olive, R.style.Accent_Sky, R.style.Accent_Ice, R.style.Accent_Graphite};
         getTheme().applyStyle(systemAccents[initialAccent], true);
         super.onCreate(state);
+        readOutputPrefs();
         themeChoice = getPreferences(MODE_PRIVATE).getInt("theme", 0);
         accentChoice = getPreferences(MODE_PRIVATE).getInt("accent", 0);
         performanceChoice = Math.max(0, Math.min(3, getPreferences(MODE_PRIVATE).getInt("performance_v2", 3)));
@@ -629,6 +674,16 @@ public final class MainActivity extends Activity {
                     ui.post(this::openFullPreview);
                 else if(s.error && s.fullPreview)openPreviewWhenReady=false;
             }
+            if(!s.running&&s.exporting&&!s.replacements.isEmpty()){
+                synchronized(s.replacements){
+                    boolean changed=false;
+                    for(int i=0;i<queue.size();i++){
+                        Uri next=s.replacements.get(queue.get(i).uri.toString());
+                        if(next!=null){queue.set(i,ConvertEngine.describe(this,next));changed=true;}
+                    }
+                    if(changed){clearPreview();clearStaged();renderFiles();renderPreviews();}
+                }
+            }
             if (!s.results.isEmpty()) {
                 exported.clear(); synchronized (s.results) { exported.addAll(s.results); }
                 lastExportMime = s.lastMime;
@@ -653,7 +708,7 @@ public final class MainActivity extends Activity {
             if (progressBar != null) progressBar.setProgress(s.progress);
             if (fileProgressBar != null) fileProgressBar.setProgress(s.fileProgress);
             if (totalProgressLabel != null) totalProgressLabel.setText("Общий прогресс   " + s.progress + "%");
-            if (fileProgressLabel != null) fileProgressLabel.setText("Текущий файл " + s.fileNumber + "/" + s.fileCount + "   " + s.fileProgress + "%");
+            if (fileProgressLabel != null) fileProgressLabel.setText(s.parallelActive>1?"Активно: "+s.parallelActive+" · готово "+s.completedFiles+"/"+s.fileCount:"Текущий файл " + s.fileNumber + "/" + s.fileCount + "   " + s.fileProgress + "%");
             if (statusLabel != null && !pickerAnalyzing && (busy || wasBusy)) setStatus(s.status,s.error);
         } else if (wasBusy && !busy && statusLabel != null && !pickerAnalyzing) {
             setStatus("Готово к конвертации",false);
@@ -977,7 +1032,39 @@ public final class MainActivity extends Activity {
         renderPreviews();
 
         LinearLayout run = card(13);
-        header(run, "04  ⇄  Конвертация", "Сохранение в Загрузки / MediaLAB");
+        header(run, "04  ⇄  Конвертация", "Папка, имена и параллельная обработка");
+        outputFolderButton=button("Папка сохранения",false);
+        outputFolderButton.setSingleLine(false);outputFolderButton.setMaxLines(2);
+        outputFolderButton.setOnClickListener(v->chooseOutputTree(false));
+        run.addView(outputFolderButton,boxLp(-1,dp(60),8));
+        resetOutputButton=button("Сбросить папку на Загрузки / MediaLAB",false);
+        resetOutputButton.setOnClickListener(v->{outputTree=null;outputPrefs().edit().remove(OutputPolicy.TREE).apply();refreshOutputControls();});
+        run.addView(resetOutputButton,boxLp(-1,dp(44),5));
+        namesSwitch=new android.widget.Switch(this);namesSwitch.setText("Использовать оригинальные имена файлов");
+        namesSwitch.setTextColor(WHITE);namesSwitch.setChecked(originalNames);
+        namesSwitch.setOnCheckedChangeListener((v,on)->{originalNames=on;outputPrefs().edit().putBoolean(OutputPolicy.NAMES,on).apply();});
+        run.addView(namesSwitch,boxLp(-1,dp(52),6));
+        replaceSwitch=new android.widget.Switch(this);replaceSwitch.setText("Заменять оригинальные файлы");
+        replaceSwitch.setTextColor(WHITE);replaceSwitch.setChecked(replaceOriginals);
+        replaceSwitch.setOnCheckedChangeListener((v,on)->{
+            replaceOriginals=on;replaceConfirmed=false;refreshOutputControls();
+        });
+        run.addView(replaceSwitch,boxLp(-1,dp(52),2));
+        run.addView(txt("Замена в исходной папке: сначала проверяется новый файл. При смене формата меняется расширение. При запуске замена выключена.",11,SECONDARY,false),boxLp(-1,-2,3));
+        sourceAccessButton=button("Разрешить запись в исходную папку",false);
+        sourceAccessButton.setOnClickListener(v->chooseOutputTree(true));
+        run.addView(sourceAccessButton,boxLp(-1,dp(48),6));
+        run.addView(txt("Одновременная обработка файлов",12,SECONDARY,true),boxLp(-1,-2,12));
+        workersSpinner=spinner(new String[]{"1 файл","2 файла","3 файла","4 файла"},parallelWorkers-1);
+        workersSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
+            public void onItemSelected(AdapterView<?> parent,View view,int position,long id){
+                parallelWorkers=position+1;outputPrefs().edit().putInt(OutputPolicy.WORKERS,parallelWorkers).apply();
+            }
+            public void onNothingSelected(AdapterView<?> parent){}
+        });
+        run.addView(workersSpinner,boxLp(-1,dp(48),4));
+        run.addView(txt("Для видео и ASC PRO не более двух задач одновременно; на каждом файле действует свой лимит потоков.",11,SECONDARY,false),boxLp(-1,-2,4));
+        refreshOutputControls();
         
         exportButton = button("⇢  Конвертировать и сохранить", true);
         exportButton.setOnClickListener(v -> perform(true));
@@ -1081,6 +1168,7 @@ public final class MainActivity extends Activity {
         // Use */* so unusual extensions (TIFF, WMA, Matroska, etc.) are visible in SAF providers.
         intent.setType("*/*");
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         try { startActivityForResult(intent, PICK); }
         catch (Exception ex) { setStatus("Проводник файлов недоступен: " + ex.getMessage(), true); }
     }
@@ -1088,7 +1176,7 @@ public final class MainActivity extends Activity {
         if(pickerAnalyzing || (ConversionService.state.running && ConversionService.state.exporting))return;
         folderMode=mode;
         Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION|Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION|Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         try{startActivityForResult(i,PICK_FOLDER);}catch(Exception e){setStatus("Выбор папки недоступен: "+e.getMessage(),true);}
     }
     private static String documentKey(Uri uri){
@@ -1103,7 +1191,7 @@ public final class MainActivity extends Activity {
         final java.util.HashSet<String> known=new java.util.HashSet<>();
         for(ConvertEngine.Source src:queue)known.add(documentKey(src.uri));
         if(room==0){setStatus("Очередь заполнена: 1000 файлов",true);return;}
-        try{getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
+        try{getContentResolver().takePersistableUriPermission(tree,data.getFlags()&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION));}catch(Exception ignored){}
         pickerAnalyzing=true;updateButtons();setStatus("Сканируем папку и подпапки…",false);
         executor.execute(()->{
             ArrayList<ConvertEngine.Source> found=new ArrayList<>();
@@ -1154,6 +1242,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int req, int result, Intent data) {
         super.onActivityResult(req, result, data);
+        if(req==PICK_OUTPUT||req==PICK_REPLACE_ACCESS){if(result==RESULT_OK&&data!=null)acceptOutputTree(data,req==PICK_REPLACE_ACCESS);return;}
         if(req==PICK_FOLDER){if(result==RESULT_OK&&data!=null&&!(ConversionService.state.running&&ConversionService.state.exporting))importFolder(data);return;}
         if (req != PICK || result != RESULT_OK || data == null || pickerAnalyzing ||
                 (ConversionService.state.running && ConversionService.state.exporting)) return;
@@ -1166,6 +1255,8 @@ public final class MainActivity extends Activity {
             }
         } else if (data.getData()!=null) uris.add(data.getData());
         if (uris.isEmpty()) return;
+        for(Uri uri:uris)try{getContentResolver().takePersistableUriPermission(uri,data.getFlags()&
+                (Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION));}catch(Exception ignored){}
         pickerAnalyzing = true;updateButtons();
         setStatus("Определяем тип выбранных файлов…", false);
         executor.execute(() -> {
@@ -1708,6 +1799,12 @@ public final class MainActivity extends Activity {
         if (cancelButton != null) cancelButton.setVisibility(ConversionService.state.running ? View.VISIBLE : View.GONE);
         if (shareButton != null) shareButton.setVisibility(exported.isEmpty() ? View.GONE : View.VISIBLE);
         boolean exportingNow = busy && ConversionService.state.exporting;
+        if(outputFolderButton!=null)outputFolderButton.setEnabled(!exportingNow);
+        if(resetOutputButton!=null)resetOutputButton.setEnabled(!exportingNow);
+        if(namesSwitch!=null)namesSwitch.setEnabled(!exportingNow);
+        if(replaceSwitch!=null)replaceSwitch.setEnabled(!exportingNow && mode!=ConvertEngine.EXTRACT);
+        if(sourceAccessButton!=null)sourceAccessButton.setEnabled(!exportingNow);
+        if(workersSpinner!=null)workersSpinner.setEnabled(!exportingNow);
         if (qualitySeek != null) qualitySeek.setEnabled(!exportingNow);
         boolean smart=savedQuality[mode]==SmartCompression.QUALITY;
         if (formatSpinner != null) formatSpinner.setEnabled(!exportingNow && !smart);
@@ -1720,6 +1817,13 @@ public final class MainActivity extends Activity {
         statusLabel.setTextColor(error ? Color.rgb(255, 148, 154) : SECONDARY);
     }
     private void perform(boolean exporting) {
+        if(exporting&&replaceOriginals&&!replaceConfirmed){
+            if(mode==ConvertEngine.EXTRACT){setStatus("Замена оригинала при извлечении звука запрещена",true);return;}
+            new AlertDialog.Builder(this).setTitle("Заменить оригиналы?")
+                .setMessage("Будут обработаны "+queue.size()+" файл(ов). Каждый исходник удаляется только после записи и проверки нового файла в исходной папке. При совпадении имени создаётся резервная копия на время замены. Выбранная папка назначения в этом режиме не используется.")
+                .setNegativeButton("Отмена",null).setPositiveButton("Заменить",(d,w)->{replaceConfirmed=true;perform(true);}).show();
+            return;
+        }
         if (exporting && ConversionService.state.running && !ConversionService.state.exporting) {
             pendingExportAfterPreview=true;
             openPreviewWhenReady=false;
@@ -1744,6 +1848,12 @@ public final class MainActivity extends Activity {
         } else clearPreview();
         try {
             Intent intent = ConversionService.request(this, chosen, cfg, exporting,openPreviewWhenReady);
+            if(exporting){
+                intent.putExtra("outputTree",outputTree==null?null:outputTree.toString());
+                intent.putExtra("originalNames",originalNames);intent.putExtra("replaceOriginals",replaceOriginals&&replaceConfirmed&&mode!=ConvertEngine.EXTRACT);
+                intent.putExtra("parallelWorkers",parallelWorkers);
+                replaceConfirmed=false;
+            }
             launchRevision=ConversionService.state.revision;launchDeadline=android.os.SystemClock.elapsedRealtime()+5000;
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
             else startService(intent);

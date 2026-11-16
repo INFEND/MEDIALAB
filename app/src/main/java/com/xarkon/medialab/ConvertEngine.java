@@ -353,9 +353,13 @@ final class ConvertEngine {
         return new File(directory, "out_" + System.nanoTime() + "." + ext);
     }
 
+    private static final ThreadLocal<Integer> WORKER_LIMIT=new ThreadLocal<>();
+    static void setWorkerLimit(int count){WORKER_LIMIT.set(Math.max(1,count));}
+    static void clearWorkerLimit(){WORKER_LIMIT.remove();}
     static int threads(int performance){
         int cores=Math.max(1,Runtime.getRuntime().availableProcessors());
-        return performance==0?Math.min(2,cores):performance==1?Math.min(4,cores):performance==2?Math.max(1,cores-2):cores;
+        int requested=performance==0?Math.min(2,cores):performance==1?Math.min(4,cores):performance==2?Math.max(1,cores-2):cores;
+        Integer cap=WORKER_LIMIT.get();return cap==null?requested:Math.max(1,Math.min(requested,cap));
     }
     static List<String> command(File input, File output, Config cfg, MediaInfo inf, long startMs, long lengthMs) {
         ArrayList<String> args = new ArrayList<>();

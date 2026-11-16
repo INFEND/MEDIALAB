@@ -57,6 +57,8 @@ public final class ConversionService extends Service {
         volatile int fileProgress;
         volatile int fileNumber;
         volatile int fileCount;
+        volatile int parallelActive, completedFiles;
+        final java.util.Map<String,Uri> replacements=Collections.synchronizedMap(new java.util.HashMap<>());
         volatile int quality;
         volatile int performance;
         volatile int resolution, bitrate;
@@ -139,6 +141,7 @@ public final class ConversionService extends Service {
         state.fileProgress = 0;
         state.fileNumber = 0;
         state.fileCount = 0;
+        state.parallelActive=0;state.completedFiles=0;
         state.quality = request.getIntExtra("quality", 78);
         state.performance = request.getIntExtra("performance", 1);
         state.resolution=request.getIntExtra("resolution",0);
@@ -148,6 +151,7 @@ public final class ConversionService extends Service {
         state.exporting = request.getBooleanExtra("export", false);
         if (state.exporting) {
             synchronized (state.results) { state.results.clear(); }
+            state.replacements.clear();
         }
         state.status = "Подготовка задания…";
         state.mode = request.getIntExtra("mode", ConvertEngine.VIDEO);
@@ -199,6 +203,11 @@ public final class ConversionService extends Service {
                 request.getIntExtra("resolution", 0), request.getIntExtra("bitrate", 2),
                 request.getIntExtra("performance", 1));
         boolean exporting = request.getBooleanExtra("export", false);
+        String outputValue=request.getStringExtra("outputTree");
+        Uri outputTree=outputValue==null?null:Uri.parse(outputValue);
+        boolean originalNames=request.getBooleanExtra("originalNames",false);
+        boolean replace=request.getBooleanExtra("replaceOriginals",false)&&cfg.mode!=ConvertEngine.EXTRACT;
+        int requestedWorkers=Math.max(1,Math.min(4,request.getIntExtra("parallelWorkers",1)));
         boolean fullPreview=true;
         state.fullPreview=fullPreview;
         if(cfg.performance==3)try{android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_MORE_FAVORABLE);}catch(Exception ignored){}
@@ -237,7 +246,15 @@ public final class ConversionService extends Service {
                     state.compareParts.clear();
                 }
             }
-            for (int n = 0; n < files.size() && !cancellation.get(); n++) {
+            if(exporting){
+                FFmpegKitConfig.enableStatisticsCallback(null); // session-global callback cannot attribute concurrent jobs
+                if(!replace&&outputTree!=null&&!OutputPolicy.hasWrite(this,outputTree))
+                    throw new java.io.IOException("Нет доступа к выбранной папке сохранения. Выберите её заново");
+                int max=(cfg.mode==ConvertEngine.VIDEO||cfg.mode==ConvertEngine.EXTRACT||cfg.quality==SmartCompression.QUALITY)?2:4;
+                int workers=Math.min(files.size(),Math.min(requestedWorkers,max));
+                BatchResult batch=exportBatch(files,cfg,outputTree,originalNames,replace,workers);
+                saved=batch.saved;failed=batch.failed;firstFileError=batch.firstError;
+            }else for (int n = 0; n < files.size() && !cancellation.get(); n++) {
                 ConvertEngine.Source src = files.get(n);
                 state.fileNumber = n + 1;
                 state.fileProgress = 0;
@@ -433,6 +450,116 @@ public final class ConversionService extends Service {
                 state.revision++;
                 stopSelfResult(latestStartId);
             });
+        }
+    }
+
+    private static final class BatchResult {
+        int saved,failed;String firstError;
+    }
+    private static final class ItemResult {
+        final boolean success;final String message;
+        ItemResult(boolean ok,String msg){success=ok;message=msg;}
+    }
+    private final Object batchLock=new Object();
+    private int[] batchProgress;
+    private void batchProgress(int index,int value,String message){
+        synchronized(batchLock){
+            if(batchProgress==null)return;
+            batchProgress[index]=Math.max(batchProgress[index],Math.max(0,Math.min(100,value)));
+            int total=0;for(int p:batchProgress)total+=p;
+            state.fileProgress=batchProgress[index];state.fileNumber=index+1;
+            mark(message,Math.min(99,total/Math.max(1,batchProgress.length)),false);
+        }
+    }
+    private BatchResult exportBatch(ArrayList<ConvertEngine.Source> files,ConvertEngine.Config cfg,
+            Uri tree,boolean names,boolean replace,int workers)throws Exception{
+        BatchResult result=new BatchResult();
+        java.util.concurrent.ExecutorService pool=Executors.newFixedThreadPool(Math.max(1,workers));
+        java.util.concurrent.ExecutorCompletionService<ItemResult> done=new java.util.concurrent.ExecutorCompletionService<>(pool);
+        batchProgress=new int[files.size()];
+        state.parallelActive=workers;
+        int cap=Math.max(1,ConvertEngine.threads(cfg.performance)/Math.max(1,workers));
+        int submitted=0,finished=0;
+        try{
+            while(submitted<files.size()&&submitted<workers&&!cancellation.get()){
+                final int index=submitted++;
+                done.submit(()->exportOne(files.get(index),cfg,index,tree,names,replace,cap));
+            }
+            while(finished<submitted){
+                ItemResult item=done.take().get();finished++;
+                if(item.success)result.saved++;
+                else if(!cancellation.get()){result.failed++;if(result.firstError==null)result.firstError=item.message;}
+                state.completedFiles=finished;
+                if(submitted<files.size()&&!cancellation.get()){
+                    final int index=submitted++;
+                    done.submit(()->exportOne(files.get(index),cfg,index,tree,names,replace,cap));
+                }
+            }
+        }finally{
+            pool.shutdown();
+            if(!pool.awaitTermination(5,java.util.concurrent.TimeUnit.SECONDS)){
+                cancellation.set(true);try{FFmpegKit.cancel();}catch(Throwable ignored){}
+                pool.shutdownNow();
+            }
+            batchProgress=null;state.parallelActive=0;
+        }
+        return result;
+    }
+    private ItemResult exportOne(ConvertEngine.Source src,ConvertEngine.Config cfg,int index,
+            Uri tree,boolean names,boolean replace,int cap){
+        ConvertEngine.DirectInput direct=null;File input=null,output=null;
+        ConvertEngine.setWorkerLimit(cap);
+        try{
+            if(cancellation.get())return new ItemResult(false,"Отменено");
+            ConvertEngine.Config itemCfg=ConvertEngine.forSource(cfg,src);
+            batchProgress(index,2,"Подготовка: "+src.name);
+            if(replace&&!OutputPolicy.canReplace(this,src.uri))
+                throw new java.io.IOException("Нет доступа к исходной папке. Предоставьте разрешение на запись; оригинал не изменён");
+            // Replacement needs an independent snapshot for the final original-byte check.
+            if(!replace&&itemCfg.mode!=ConvertEngine.IMAGE){
+                direct=ConvertEngine.openDirect(this,src);
+                if(direct!=null){
+                    if(ConvertEngine.canProbeDirect(direct.file))input=direct.file;
+                    else{direct.close();direct=null;}
+                }
+            }
+            if(input==null)input=ConvertEngine.stage(this,src,cancellation::get,(copied,total)->{
+                if(total>0)batchProgress(index,Math.min(8,(int)(8.0*copied/total)),"Чтение: "+src.name);
+            });
+            if(cancellation.get())return new ItemResult(false,"Отменено");
+            ConvertEngine.MediaInfo info=itemCfg.mode==ConvertEngine.IMAGE?new ConvertEngine.MediaInfo():ConvertEngine.info(input);
+            long modified=ConvertEngine.modified(this,src.uri);
+            String key=modified>0&&src.size>0?src.uri+"|"+src.size+"|"+modified+"|"+itemCfg.mode+"|"+itemCfg.performance:null;
+            String format=itemCfg.format;boolean kept=false;
+            batchProgress(index,10,"Конвертация: "+src.name);
+            if(itemCfg.quality==SmartCompression.QUALITY){
+                SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,false,key,cancellation::get,msg->batchProgress(index,15,msg+" · "+src.name));
+                output=result.file;format=result.format;kept=result.original;
+            }else{
+                output=ConvertEngine.outputTemp(this,format);
+                if(!ConvertEngine.convertNativeImage(input,output,itemCfg,cancellation::get)){
+                    FFmpegSession session=ConvertEngine.convert(input,output,itemCfg,info,0,0);
+                    validate(session,output);
+                }
+            }
+            if(cancellation.get())return new ItemResult(false,"Отменено");
+            String mime=kept?getContentResolver().getType(src.uri):ConvertEngine.mime(itemCfg.mode,format);
+            if(mime==null)mime=ConvertEngine.mime(itemCfg.mode,format);
+            batchProgress(index,90,"Сохранение и проверка: "+src.name);
+            OutputPolicy.Saved saved=OutputPolicy.save(this,output,input,src,format,mime,index,tree,names,replace,kept,cancellation::get);
+            state.results.add(saved.uri);state.lastMime=mime;
+            if(saved.replaced)state.replacements.put(src.uri.toString(),saved.uri);
+            String message=saved.warning.isEmpty()?(saved.replaced?"Заменён: ":"Сохранён: ")+src.name:saved.warning+" · "+src.name;
+            batchProgress(index,100,message);
+            return new ItemResult(true,message);
+        }catch(Exception error){
+            String msg=src.name+": "+(error.getMessage()==null?"ошибка обработки":error.getMessage());
+            Log.e(TAG,msg,error);batchProgress(index,100,msg);
+            return new ItemResult(false,msg);
+        }finally{
+            if(output!=null&&!output.equals(input))output.delete();
+            if(direct!=null)direct.close();else if(input!=null)input.delete();
+            ConvertEngine.clearWorkerLimit();
         }
     }
 
