@@ -28,14 +28,15 @@ final class SmartCompression {
         int encodes, durationFailures, qualityFailures, nativeFailures;
         boolean fullAttempted;
         String last="";
+        final LinkedHashSet<String> recent=new LinkedHashSet<>();
         void note(String msg){
-            last=msg;
+            last=msg;recent.add(msg);while(recent.size()>4)recent.remove(recent.iterator().next());
             android.util.Log.w("MediaLAB_ASC",msg);
         }
         String details(){
             return "Кодирование: "+encodes+"; ошибки FFmpeg: "+nativeFailures+
                     "; длительность: "+durationFailures+"; качество: "+qualityFailures+
-                    (last.isEmpty()?"":". "+last);
+                    (last.isEmpty()?"":". "+String.join(" | ",recent));
         }
     }
     private static void check(ConvertEngine.Canceled c) throws IOException {
@@ -232,12 +233,14 @@ final class SmartCompression {
             // Do not spend time repeating full encodes. Preserve the original if the full gate fails.
             if(cfg.mode!=ConvertEngine.EXTRACT)return null;
         }
-        String[] codecs=video?(cfg.performance==3?new String[]{"hevc_mediacodec","libx264","libx265"}:
-                new String[]{"hevc_mediacodec","libx265","libx264","libvpx-vp9"}):new String[]{"libopus","aac","flac"};
+        Set<String> available=video?ConvertEngine.videoEncoders():Collections.emptySet();
+        String[] codecs=video?AscVideoOptions.codecs(available,cfg.performance):new String[]{"libopus","aac","flac"};
+        if(video&&codecs.length==0){d.note("В установленном FFmpeg нет совместимых видеокодировщиков");return null;}
+        if(video)android.util.Log.i("MediaLAB_ASC","Available ASC encoders: "+Arrays.toString(codecs));
         long probeLength=length>0?length:Math.min(video?5000:5000,inf.durationMs);
         long probeStart=length>0?start:Math.max(0,(inf.durationMs-probeLength)/2);
         if(probeLength<=0)return null;
-        long bitrate=inf.durationMs>0?Math.max(100000,Math.min(100000000,(long)(in.length()*8000.0/inf.durationMs*.80))):4000000;
+        long bitrate=inf.durationMs>0?Math.max(100000,Math.min(120000000,(long)(in.length()*8000.0/inf.durationMs))):4000000;
         Result found=searchCandidates(ctx,in,in,cfg,inf,preview,sourceKey,c,status,d,
                 video,codecs,bitrate,probeStart,probeLength);
         if(found!=null || !video || d.fullAttempted)return found;
@@ -275,7 +278,7 @@ final class SmartCompression {
             ConvertEngine.MediaInfo inf,boolean preview,String sourceKey,ConvertEngine.Canceled c,Status status,
             Diagnostics d,boolean video,String[] codecs,long bitrate,long probeStart,long probeLength)throws IOException{
         for(String codec:codecs){
-            int[] steps=video?("hevc_mediacodec".equals(codec)?new int[]{0}:cfg.performance==3?new int[]{18,10,4}:new int[]{20,16,12,8,4}):
+            int[] steps=video?AscVideoOptions.steps(codec,cfg.performance):
                     "flac".equals(codec)?new int[]{5}:new int[]{192,320};
             for(int q:steps){
                 check(c);
@@ -339,13 +342,7 @@ final class SmartCompression {
                 else Collections.addAll(a,"-map","0");
                 Collections.addAll(a,"-c","copy","-c:v:0",codec);
                 // Audio is copied in both sample and export; only the comparison player converts it.
-                if("hevc_mediacodec".equals(codec))Collections.addAll(a,"-b:v:0",String.valueOf(bitrate),"-pix_fmt","yuv420p");
-                else {
-                    Collections.addAll(a,"-crf",String.valueOf(q));
-                    if("libx265".equals(codec))Collections.addAll(a,"-preset","veryfast","-x265-params","log-level=error");
-                    else if("libx264".equals(codec))Collections.addAll(a,"-preset",cfg.performance==3?"superfast":"veryfast");
-                    else Collections.addAll(a,"-b:v:0","0","-deadline","good","-cpu-used","6","-row-mt","1");
-                }
+                AscVideoOptions.append(a,codec,q,bitrate,cfg.performance);
             }else{
                 Collections.addAll(a,"-map","0:a:0","-vn","-c:a",codec);
                 if("flac".equals(codec))Collections.addAll(a,"-compression_level","5");

@@ -528,6 +528,29 @@ final class ConvertEngine {
                                           long startMs, long lengthMs, boolean portrait) {
         return previewPair(original,encoded,paired,startMs,lengthMs,portrait,false);
     }
+    private static volatile java.util.Set<String> cachedVideoEncoders;
+    static java.util.Set<String> videoEncoders(){
+        java.util.Set<String> current=cachedVideoEncoders;
+        if(current!=null)return current;
+        try{
+            FFmpegSession session=FFmpegKit.executeWithArguments(new String[]{"-hide_banner","-encoders"});
+            if(session!=null&&ReturnCode.isSuccess(session.getReturnCode())){
+                java.util.Set<String> found=AscVideoOptions.parse(session.getAllLogsAsString());
+                if(!found.isEmpty()){
+                    current=java.util.Collections.unmodifiableSet(found);
+                    cachedVideoEncoders=current;return current;
+                }
+            }
+        }catch(Exception ex){android.util.Log.w("MediaLAB_Engine","Encoder enumeration unavailable",ex);}
+        return java.util.Collections.emptySet();
+    }
+    static String[] previewCodecs(){
+        java.util.Set<String> available=videoEncoders();
+        java.util.ArrayList<String> choices=new java.util.ArrayList<>();
+        for(String codec:new String[]{"h264_mediacodec","mpeg4"})
+            if(available.isEmpty()||available.contains(codec))choices.add(codec);
+        return choices.toArray(new String[0]);
+    }
     static FFmpegSession previewPair(File original,File encoded,File paired,long startMs,long lengthMs,
                                      boolean portrait,boolean sourceOnly){
         String start=String.format(Locale.US,"%.3f",startMs/1000.0);
@@ -539,7 +562,7 @@ final class ConvertEngine {
         String graph=sourceOnly?"[0:v:0]"+common+",split=2[left][right];[left][right]hstack=inputs=2:shortest=1[paired]":
                 "[0:v:0]"+common+"[left];[1:v:0]"+common+"[right];[left][right]hstack=inputs=2:shortest=1[paired]";
         FFmpegSession last=null;
-        for(String codec:new String[]{"h264_mediacodec","libx264","mpeg4"}){
+        for(String codec:previewCodecs()){
             if(last!=null&&ReturnCode.isCancel(last.getReturnCode()))return last;
             paired.delete();
             List<String> args=new ArrayList<>();
@@ -548,7 +571,6 @@ final class ConvertEngine {
             add(args,"-filter_complex",graph,"-map","[paired]","-map",sourceOnly?"0:a:0?":"1:a:0?","-t",seconds,
                 "-c:v",codec,"-pix_fmt","yuv420p");
             if("h264_mediacodec".equals(codec))add(args,"-b:v","3500k");
-            else if("libx264".equals(codec))add(args,"-preset","ultrafast","-crf","20");
             else add(args,"-q:v","3");
             add(args,"-c:a","aac","-b:a","128k","-ac","2","-movflags","+faststart",paired.getAbsolutePath());
             last=FFmpegKit.executeWithArguments(args.toArray(new String[0]));
@@ -566,7 +588,7 @@ final class ConvertEngine {
     static FFmpegSession demoVideo(File original,File output,long startMs,long lengthMs,boolean portrait){
         String size=portrait?"360:640":"640:360";
         FFmpegSession last=null;
-        for(String codec:new String[]{"h264_mediacodec","libx264","mpeg4"}){
+        for(String codec:previewCodecs()){
             if(last!=null&&ReturnCode.isCancel(last.getReturnCode()))return last;
             output.delete();
             List<String> args=new ArrayList<>();
@@ -575,7 +597,6 @@ final class ConvertEngine {
                 "-map","0:v:0","-map","0:a:0?","-vf","scale="+size+":force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,format=yuv420p",
                 "-c:v",codec);
             if("h264_mediacodec".equals(codec))add(args,"-b:v","2500k");
-            else if("libx264".equals(codec))add(args,"-preset","ultrafast","-crf","19");
             else add(args,"-q:v","3");
             add(args,"-c:a","aac","-ac","2","-b:a","128k","-movflags","+faststart",output.getAbsolutePath());
             last=FFmpegKit.executeWithArguments(args.toArray(new String[0]));
