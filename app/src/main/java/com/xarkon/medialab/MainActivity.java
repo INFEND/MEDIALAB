@@ -949,6 +949,7 @@ public final class MainActivity extends Activity {
                 if (busy || pickerAnalyzing || mode == dest) return;
                 cacheSettings();
                 mode = dest;
+                replaceConfirmed=false;if(mode==ConvertEngine.EXTRACT)replaceOriginals=false;
                 queue.clear(); selected = 0; clearPreview(); clearStaged(); exported.clear();
                 rebuild();
             });
@@ -1337,6 +1338,7 @@ public final class MainActivity extends Activity {
         cacheSettings();
         boolean changed=mode!=targetMode;
         mode=targetMode;
+        replaceConfirmed=false;if(mode==ConvertEngine.EXTRACT)replaceOriginals=false;
         if(changed){queue.clear();selected=0;visibleFiles=24;}
         int added=0;
         for(ConvertEngine.Source source:files){
@@ -1444,6 +1446,7 @@ public final class MainActivity extends Activity {
         setStatus(message,false);
     }
     private void clearPreview() {
+        replaceConfirmed=false;
         stopPlayback();
         previewParts.clear(); pairedParts.clear();
         previewOutput = null; previewSettings = null; previewDurationMs = 0; previewSampledMs = 0; previewUnverified=false; previewFull=false; previewSourceOnly=false;
@@ -1817,6 +1820,7 @@ public final class MainActivity extends Activity {
         statusLabel.setTextColor(error ? Color.rgb(255, 148, 154) : SECONDARY);
     }
     private void perform(boolean exporting) {
+        if(exporting&&(queue.isEmpty()||pickerAnalyzing||launchDeadline!=0||(ConversionService.state.running&&ConversionService.state.exporting))){replaceConfirmed=false;return;}
         if(exporting&&replaceOriginals&&!replaceConfirmed){
             if(mode==ConvertEngine.EXTRACT){setStatus("Замена оригинала при извлечении звука запрещена",true);return;}
             new AlertDialog.Builder(this).setTitle("Заменить оригиналы?")
@@ -1833,8 +1837,9 @@ public final class MainActivity extends Activity {
             setStatus("Останавливаем предпросмотр и запускаем пакетную конвертацию…",false);
             return;
         }
-        if (busy || launchDeadline!=0 || ConversionService.state.running || queue.isEmpty() || pickerAnalyzing) return;
+        if (busy || launchDeadline!=0 || ConversionService.state.running || queue.isEmpty() || pickerAnalyzing) {if(exporting)replaceConfirmed=false;return;}
         if (!ffmpegReady) {
+            if(exporting)replaceConfirmed=false;
             setStatus("Движок FFmpeg не готов: " + ffmpegDiagnostic, true);
             showEngineDiagnostics(); return;
         }
@@ -1863,7 +1868,7 @@ public final class MainActivity extends Activity {
                     "Готовим реальный фрагмент из середины файла…", false);
             updateButtons();
         } catch (Throwable ex) {
-            launchDeadline=0;busy = false;
+            launchDeadline=0;busy = false;replaceConfirmed=false;
             setStatus("Не удалось запустить службу: " + formatFailure(ex), true);
             updateButtons();
         }

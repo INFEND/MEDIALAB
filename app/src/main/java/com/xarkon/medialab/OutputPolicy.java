@@ -200,13 +200,24 @@ final class OutputPolicy {
             if(replace&&same(temp,parent.source))throw new IOException("Провайдер вернул исходный документ");
             write(cr,temp,result,canceled);verify(cr,temp,resultHash,canceled);check(canceled);
             if(replace)verify(cr,parent.source,originalHash,canceled);
+            if(!replace&&(flags(cr,temp)&Document.FLAG_SUPPORTS_RENAME)==0){
+                // Some writable SAF providers cannot rename. Create a fresh, unique
+                // final document and verify it before reporting success.
+                Uri direct=create(cr,parent.uri,mime,unique(cr,parent.tree,parent.uri,targetName));
+                try{write(cr,direct,result,canceled);verify(cr,direct,resultHash,canceled);check(canceled);}
+                catch(Exception failure){removeQuietly(cr,direct);throw failure;}
+                committed=true;return new Saved(direct,false,"");
+            }
             // After this point complete or roll back the short publication transaction
             // even if cancellation was requested; no original is ever truncated.
             check(canceled);
             if(sameName){
                 backup=rename(cr,parent.source,"MediaLAB-backup-"+token+"-"+source.name);
             }
-            published=rename(cr,temp,targetName);temp=null;
+            Uri renamed=rename(cr,temp,targetName);temp=null;
+            if(replace&&((sameName&&same(renamed,backup))||(!sameName&&same(renamed,parent.source))))
+                throw new IOException("Провайдер вернул оригинал вместо нового документа");
+            published=renamed;
             if(replace&&!targetName.equals(display(cr,published)))throw new IOException("Провайдер изменил имя результата");
             verify(cr,published,resultHash,()->false);
             if(replace){
@@ -216,8 +227,8 @@ final class OutputPolicy {
                 committed=true;
                 try{
                     if(!DocumentsContract.deleteDocument(cr,old))
-                        return new Saved(published,false,"Результат сохранён, оригинал/резервная копия не удалены");
-                }catch(Exception ex){return new Saved(published,false,"Результат сохранён, оригинал/резервная копия не удалены");}
+                        return new Saved(published,sameName,"Результат сохранён, оригинал/резервная копия не удалены");
+                }catch(Exception ex){return new Saved(published,sameName,"Результат сохранён, оригинал/резервная копия не удалены");}
                 return new Saved(published,true,"");
             }
             committed=true;return new Saved(published,false,"");

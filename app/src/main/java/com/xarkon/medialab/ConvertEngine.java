@@ -354,8 +354,13 @@ final class ConvertEngine {
     }
 
     private static final ThreadLocal<Integer> WORKER_LIMIT=new ThreadLocal<>();
-    static void setWorkerLimit(int count){WORKER_LIMIT.set(Math.max(1,count));}
-    static void clearWorkerLimit(){WORKER_LIMIT.remove();}
+    private static final ThreadLocal<Integer> PARALLEL_COUNT=new ThreadLocal<>();
+    static void setWorkerLimit(int count,int parallel){WORKER_LIMIT.set(Math.max(1,count));PARALLEL_COUNT.set(Math.max(1,parallel));}
+    static void clearWorkerLimit(){WORKER_LIMIT.remove();PARALLEL_COUNT.remove();}
+    static long nativeImagePixelBudget(){
+        Integer parallel=PARALLEL_COUNT.get();if(parallel==null||parallel<=1)return 24_000_000L;
+        return Math.max(1_000_000L,Math.min(24_000_000L,Runtime.getRuntime().maxMemory()/(parallel*24L)));
+    }
     static int threads(int performance){
         int cores=Math.max(1,Runtime.getRuntime().availableProcessors());
         int requested=performance==0?Math.min(2,cores):performance==1?Math.min(4,cores):performance==2?Math.max(1,cores-2):cores;
@@ -458,7 +463,7 @@ final class ConvertEngine {
         BitmapFactory.decodeFile(input.getAbsolutePath(),bounds);
         if(bounds.outWidth<1 || bounds.outHeight<1) return false;
         // Decode originals at native resolution; large images fall back to FFmpeg streaming.
-        if((long)bounds.outWidth * bounds.outHeight > 24_000_000L)return false;
+        if((long)bounds.outWidth * bounds.outHeight > nativeImagePixelBudget())return false;
         if(canceled.canceled())throw new IOException("Операция отменена");
         Bitmap decoded=null,oriented=null;
         try {
@@ -579,6 +584,22 @@ final class ConvertEngine {
         return last;
     }
 
+    /** Destructive replacement is gated on a full successful decode, not merely file existence. */
+    static void verifyForReplacement(File result,int mode,MediaInfo source,Canceled canceled)throws IOException{
+        if(canceled.canceled())throw new IOException("Операция отменена");
+        if(result==null||!result.isFile()||result.length()<=0)throw new IOException("Результат пуст");
+        if(mode!=IMAGE&&source.durationMs>0){
+            long actual=info(result).durationMs;
+            if(actual<=0||Math.abs(actual-source.durationMs)>Math.max(500,source.durationMs/50))
+                throw new IOException("Длительность результата не совпадает с исходником; оригинал не изменён");
+        }
+        String stream=mode==AUDIO?"0:a:0":"0:v:0";
+        FFmpegSession session=FFmpegKit.executeWithArguments(new String[]{"-hide_banner","-nostdin","-v","error","-xerror",
+                "-threads",String.valueOf(threads(3)),"-i",result.getAbsolutePath(),"-map",stream,"-map","0:a?",
+                "-f","null","-"});
+        if(canceled.canceled())throw new IOException("Операция отменена");
+        if(session==null||!ReturnCode.isSuccess(session.getReturnCode()))throw new IOException("Контроль декодирования результата не пройден; оригинал не изменён");
+    }
     static Uri save(Context ctx, File result, String displayName, String mime, Canceled canceled) throws IOException {
         if (canceled.canceled()) throw new IOException("Операция отменена");
         ContentResolver resolver = ctx.getContentResolver();

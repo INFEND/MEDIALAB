@@ -193,8 +193,8 @@ public final class ConversionService extends Service {
     private void process(Intent request, int startId) {
         String failure = null;
         int saved = 0;
-        int failed = 0;
-        String firstFileError = null;
+        int failed = 0, warnings=0;
+        String firstFileError = null, firstWarning=null;
         ArrayList<File> previews = new ArrayList<>();
         ArrayList<File> comparisons = new ArrayList<>();
         long sampledMs = 0, durationMs = 0, sampledBytes = 0;
@@ -253,7 +253,7 @@ public final class ConversionService extends Service {
                 int max=(cfg.mode==ConvertEngine.VIDEO||cfg.mode==ConvertEngine.EXTRACT||cfg.quality==SmartCompression.QUALITY)?2:4;
                 int workers=Math.min(files.size(),Math.min(requestedWorkers,max));
                 BatchResult batch=exportBatch(files,cfg,outputTree,originalNames,replace,workers);
-                saved=batch.saved;failed=batch.failed;firstFileError=batch.firstError;
+                saved=batch.saved;failed=batch.failed;firstFileError=batch.firstError;warnings=batch.warnings;firstWarning=batch.firstWarning;
             }else for (int n = 0; n < files.size() && !cancellation.get(); n++) {
                 ConvertEngine.Source src = files.get(n);
                 state.fileNumber = n + 1;
@@ -437,6 +437,7 @@ public final class ConversionService extends Service {
             else if (exporting && failed > 0)
                 mark("Завершено: сохранено "+saved+" из "+files.size()+
                      ". Ошибок: "+failed+". Первая: "+firstFileError,100,true);
+            else if (exporting && warnings>0) mark("Готово. Сохранено: "+saved+". Предупреждений: "+warnings+". "+firstWarning,100,false);
             else if (exporting) mark("Готово. Сохранено файлов: " + saved, 100, false);
             else mark("Реальный предпросмотр готов",100,false);
             if (failure == null && !cancellation.get()) state.fileProgress = 100;
@@ -454,11 +455,12 @@ public final class ConversionService extends Service {
     }
 
     private static final class BatchResult {
-        int saved,failed;String firstError;
+        int saved,failed,warnings;String firstError,firstWarning;
     }
     private static final class ItemResult {
-        final boolean success;final String message;
-        ItemResult(boolean ok,String msg){success=ok;message=msg;}
+        final boolean success,warning;final String message;
+        ItemResult(boolean ok,String msg){this(ok,msg,false);}
+        ItemResult(boolean ok,String msg,boolean warning){success=ok;message=msg;this.warning=warning;}
     }
     private final Object batchLock=new Object();
     private int[] batchProgress;
@@ -487,13 +489,14 @@ public final class ConversionService extends Service {
             }
             while(finished<submitted){
                 ItemResult item=done.take().get();finished++;
-                if(item.success)result.saved++;
+                if(item.success){result.saved++;if(item.warning){result.warnings++;if(result.firstWarning==null)result.firstWarning=item.message;}}
                 else if(!cancellation.get()){result.failed++;if(result.firstError==null)result.firstError=item.message;}
                 state.completedFiles=finished;
                 if(submitted<files.size()&&!cancellation.get()){
                     final int index=submitted++;
                     done.submit(()->exportOne(files.get(index),cfg,index,tree,names,replace,cap));
                 }
+                state.parallelActive=submitted-finished;
             }
         }finally{
             pool.shutdown();
@@ -508,7 +511,7 @@ public final class ConversionService extends Service {
     private ItemResult exportOne(ConvertEngine.Source src,ConvertEngine.Config cfg,int index,
             Uri tree,boolean names,boolean replace,int cap){
         ConvertEngine.DirectInput direct=null;File input=null,output=null;
-        ConvertEngine.setWorkerLimit(cap);
+        ConvertEngine.setWorkerLimit(cap,Math.max(1,state.parallelActive));
         try{
             if(cancellation.get())return new ItemResult(false,"Отменено");
             ConvertEngine.Config itemCfg=ConvertEngine.forSource(cfg,src);
@@ -545,14 +548,18 @@ public final class ConversionService extends Service {
             if(cancellation.get())return new ItemResult(false,"Отменено");
             String mime=kept?getContentResolver().getType(src.uri):ConvertEngine.mime(itemCfg.mode,format);
             if(mime==null)mime=ConvertEngine.mime(itemCfg.mode,format);
+            if(replace&&!kept){
+                batchProgress(index,85,"Проверка декодирования: "+src.name);
+                ConvertEngine.verifyForReplacement(output,itemCfg.mode,info,cancellation::get);
+            }
             batchProgress(index,90,"Сохранение и проверка: "+src.name);
             OutputPolicy.Saved saved=OutputPolicy.save(this,output,input,src,format,mime,index,tree,names,replace,kept,cancellation::get);
-            state.results.add(saved.uri);state.lastMime=mime;
+            synchronized(state.results){state.results.add(saved.uri);state.lastMime=mime;}
             if(saved.replaced)state.replacements.put(src.uri.toString(),saved.uri);
             String message=saved.warning.isEmpty()?(saved.replaced?"Заменён: ":"Сохранён: ")+src.name:saved.warning+" · "+src.name;
             batchProgress(index,100,message);
-            return new ItemResult(true,message);
-        }catch(Exception error){
+            return new ItemResult(true,message,!saved.warning.isEmpty());
+        }catch(Exception | OutOfMemoryError error){
             String msg=src.name+": "+(error.getMessage()==null?"ошибка обработки":error.getMessage());
             Log.e(TAG,msg,error);batchProgress(index,100,msg);
             return new ItemResult(false,msg);
