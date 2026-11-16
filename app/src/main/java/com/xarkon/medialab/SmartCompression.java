@@ -233,8 +233,8 @@ final class SmartCompression {
             // Do not spend time repeating full encodes. Preserve the original if the full gate fails.
             if(cfg.mode!=ConvertEngine.EXTRACT)return null;
         }
-        Set<String> available=video?ConvertEngine.videoEncoders():Collections.emptySet();
-        String[] codecs=video?AscVideoOptions.codecs(available,cfg.performance):new String[]{"libopus","aac","flac"};
+        Set<String> availableEncoders=video?ConvertEngine.videoEncoders():Collections.emptySet();
+        String[] codecs=video?AscVideoOptions.codecs(availableEncoders,cfg.performance):new String[]{"libopus","aac","flac"};
         if(video&&codecs.length==0){d.note("В установленном FFmpeg нет совместимых видеокодировщиков");return null;}
         if(video)android.util.Log.i("MediaLAB_ASC","Available ASC encoders: "+Arrays.toString(codecs));
         long probeLength=length>0?length:Math.min(video?5000:5000,inf.durationMs);
