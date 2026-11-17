@@ -92,7 +92,13 @@ public final class MediaOtaDialog {
  }
  public void show(){
   if(dialog.isShowing())return;
-  dialog.show();Window w=dialog.getWindow();if(w==null)return;
+  dialog.show();
+  ring.setChecking(state==State.CHECK||state==State.VERIFY||(state==State.DOWNLOAD&&expectedBytes<=0));
+  if(state==State.DOWNLOAD&&expectedBytes>0){
+   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
+   renderDownload(receivedBytes,expectedBytes);
+  }
+  Window w=dialog.getWindow();if(w==null)return;
   w.setBackgroundDrawableResource(android.R.color.transparent);
   w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
   WindowManager.LayoutParams p=w.getAttributes();p.dimAmount=.6f;
@@ -113,7 +119,7 @@ public final class MediaOtaDialog {
   state=State.OFFER;
   title.setText("Доступно обновление");detail.setText("MediaLAB "+version);
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
-  displayedProgress=0;receivedBytes=0L;expectedBytes=-1L;
+  displayedProgress=0;receivedBytes=0L;expectedBytes=-1L;displayedBytes=0L;
   ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
   notes.setText(formatNotes(changes));history.setVisibility(changes==null||changes.trim().isEmpty()?View.GONE:View.VISIBLE);history.scrollTo(0,0);
   primary.setText("ОБНОВИТЬ");primary.setVisibility(View.VISIBLE);
@@ -127,30 +133,38 @@ public final class MediaOtaDialog {
   if(state==State.DOWNLOAD && done<receivedBytes)return;
   receivedBytes=done;expectedBytes=total;
   state=State.DOWNLOAD;
+  primary.setVisibility(View.GONE);secondary.setText("СКРЫТЬ");
   title.setText("Загрузка обновления");detail.setText("Защищённая загрузка MediaLAB");
   // Keep the progress arc determinate, with the numeric indicator synchronized below.
   ring.setChecking(false);
   progress.setIndeterminate(total<=0);
-  bytes.setText(total>0?String.format(new Locale("ru"),"%.1f / %.1f МБ",done/1048576d,total/1048576d):String.format(new Locale("ru"),"%.1f МБ",done/1048576d));
-  if(total>0){int value=(int)Math.min(1000L,Math.max(0L,done)*1000d/total);
-   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
-   int from=progress.getProgress();
-   final long fromBytes=displayedBytes;
-   // A late or duplicate callback must not visually roll the download backwards.
-   value=Math.max(from,value);
-   final int target=value;
-   numberAnimation=android.animation.ValueAnimator.ofInt(from,target);
-   numberAnimation.setDuration(170);
-   numberAnimation.setInterpolator(new android.view.animation.DecelerateInterpolator());
-   numberAnimation.addUpdateListener(animation->{
-    int shown=(int)animation.getAnimatedValue();
-    progress.setProgress(shown);ring.setProgressFraction(shown/1000f);percent.setText(shown/10+"%");
-    displayedBytes=fromBytes+(long)((done-fromBytes)*animation.getAnimatedFraction());
-    bytes.setText(String.format(new Locale("ru"),"%.1f / %.1f МБ",displayedBytes/1048576d,total/1048576d));
-   });
-   numberAnimation.start();displayedProgress=target;}
-  else {percent.setText("");ring.setChecking(true);ring.setProgressFraction(0f);}
+  if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
+  if(total<=0){
+   displayedBytes=done;bytes.setText(String.format(new Locale("ru"),"%.1f МБ",done/1048576d));
+   percent.setText("");ring.setChecking(true);return;
+  }
+  final long fromBytes=Math.min(displayedBytes,done);
+  if(!dialog.isShowing()||!android.animation.ValueAnimator.areAnimatorsEnabled()){
+   renderDownload(done,total);return;
+  }
+  numberAnimation=android.animation.ValueAnimator.ofFloat(0f,1f);
+  numberAnimation.setDuration(170);
+  numberAnimation.setInterpolator(new android.view.animation.DecelerateInterpolator());
+  numberAnimation.addUpdateListener(animation->{
+   long shown=fromBytes+(long)((done-fromBytes)*(float)animation.getAnimatedValue());
+   renderDownload(shown,total);
+  });
+  numberAnimation.start();
  }
+ private void renderDownload(long loaded,long total){
+  displayedBytes=loaded;
+  int ratio=(int)Math.min(1000d,Math.max(0d,loaded*1000d/total));
+  displayedProgress=ratio;
+  progress.setProgress(ratio);ring.setProgressFraction(ratio/1000f);
+  percent.setText(ratio/10+"%");
+  bytes.setText(String.format(new Locale("ru"),"%.1f / %.1f МБ",loaded/1048576d,total/1048576d));
+ }
+
  public void ready(String version,Runnable install){
   state=State.READY;
   title.setText("Обновление загружено");detail.setText("MediaLAB "+version+" · APK проверен");
