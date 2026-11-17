@@ -126,9 +126,29 @@ public final class OtaUpdater {
 
     private static URLConnection connection(String url) throws IOException {
         URL u=new URL(url);
-        if(!"https".equalsIgnoreCase(u.getProtocol()))throw new IOException("Допускается только HTTPS");
-        URLConnection c=u.openConnection();c.setConnectTimeout(15000);c.setReadTimeout(25000);
-        c.setRequestProperty("User-Agent","MediaLAB-OTA/1.0");return c;
+        for(int redirects=0;redirects<=5;redirects++){
+            String host=u.getHost().toLowerCase(Locale.US);
+            if(!"https".equalsIgnoreCase(u.getProtocol()) || u.getUserInfo()!=null ||
+               (u.getPort()!=-1 && u.getPort()!=443) ||
+               !(host.equals("github.com") || host.equals("release-assets.githubusercontent.com") ||
+                 host.equals("objects.githubusercontent.com")))
+                throw new IOException("Недопустимый источник OTA");
+            javax.net.ssl.HttpsURLConnection c=(javax.net.ssl.HttpsURLConnection)u.openConnection();
+            c.setInstanceFollowRedirects(false);
+            c.setConnectTimeout(15000);c.setReadTimeout(25000);
+            c.setRequestProperty("User-Agent","MediaLAB-OTA/1.0");
+            boolean keep=false;
+            try {
+                int status=c.getResponseCode();
+                if(status==200){keep=true;return c;}
+                if(status!=301 && status!=302 && status!=303 && status!=307 && status!=308)
+                    throw new IOException("Ошибка HTTP "+status);
+                String location=c.getHeaderField("Location");
+                if(location==null || location.isEmpty())throw new IOException("Пустое перенаправление OTA");
+                u=new URL(u,location);
+            } finally {if(!keep)c.disconnect();}
+        }
+        throw new IOException("Слишком много перенаправлений OTA");
     }
     private static String hash(File file)throws Exception {
         MessageDigest digest=MessageDigest.getInstance("SHA-256");
