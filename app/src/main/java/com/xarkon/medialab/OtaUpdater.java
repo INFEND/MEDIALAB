@@ -158,9 +158,15 @@ public final class OtaUpdater {
                 MessageDigest.getInstance("SHA-256").digest(future)))
             throw new IOException("Сертификат APK отличается от установленной версии. Для OTA нужна та же постоянная подпись.");
     }
+    private static java.lang.ref.WeakReference<Activity> owner=new java.lang.ref.WeakReference<>(null);
+    private static java.lang.ref.WeakReference<MediaOtaDialog> active=new java.lang.ref.WeakReference<>(null);
     public static void checkAndOffer(Activity a,int accent){
         if(a.isFinishing()||a.isDestroyed())return;
-        MediaOtaDialog ui=new MediaOtaDialog(a,accent);ui.show();check(a,accent,ui);
+        MediaOtaDialog existing=active.get();
+        if(owner.get()==a && existing!=null){existing.show();return;}
+        MediaOtaDialog ui=new MediaOtaDialog(a,accent);
+        owner=new java.lang.ref.WeakReference<>(a);active=new java.lang.ref.WeakReference<>(ui);
+        ui.show();check(a,accent,ui);
     }
     private static void check(Activity a,int accent,MediaOtaDialog ui){
         ui.stage("Проверка соединения…","Подключение к серверу…");
@@ -178,13 +184,13 @@ public final class OtaUpdater {
                 Release release=new Release(new JSONObject(data.toString("UTF-8")));
                 long installed=a.getPackageManager().getPackageInfo(a.getPackageName(),0).getLongVersionCode();
                 main.post(()->{
-                    if(a.isFinishing()||a.isDestroyed()||!ui.isShowing())return;
-                    if(release.code<=installed)ui.current("MediaLAB "+BuildConfig.VERSION_NAME);
+                    if(a.isFinishing()||a.isDestroyed())return;
+                    if(release.code<=installed){active.clear();ui.current("MediaLAB "+BuildConfig.VERSION_NAME);}
                     else ui.offer(release.name,changelog(release,installed),()->download(a,release,ui));
                 });
             }catch(Exception e){
                 String message=e.getMessage()==null?"Ошибка подключения":e.getMessage();
-                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed()&&ui.isShowing())
+                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
                     ui.fail(message,()->check(a,accent,ui));});
             }
         });
@@ -211,24 +217,24 @@ public final class OtaUpdater {
                         long now=android.os.SystemClock.uptimeMillis();
                         if(pct==100||(pct!=lastPercent&&now-lastUi>=120)){
                             lastUi=now;lastPercent=pct;long received=got;
-                            main.post(()->{if(!a.isFinishing()&&!a.isDestroyed()&&ui.isShowing())
+                            main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
                                 ui.downloading(received,release.size);});
                         }
                     }
                 }
                 if(got!=release.size||!release.sha.equals(hex(digest.digest())))
                     throw new IOException("SHA-256 или размер APK не совпадают");
-                main.post(()->{if(ui.isShowing())ui.stage("Проверка подписи APK…","Сверяем сертификат");});
+                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())ui.stage("Проверка подписи APK…","Сверяем сертификат");});
                 PackageInfo archive=a.getPackageManager().getPackageArchiveInfo(temp.getAbsolutePath(),0);
                 if(archive==null||archive.getLongVersionCode()!=release.code)
                     throw new IOException("Версия APK не совпадает с манифестом");
                 checkSigner(a,temp);
                 java.nio.file.Files.move(temp.toPath(),target.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING,java.nio.file.StandardCopyOption.ATOMIC_MOVE);
-                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed()&&ui.isShowing())
+                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
                     ui.ready(release.name,()->install(a,ui));});
             }catch(Exception e){
                 temp.delete();String message=e.getMessage()==null?"Ошибка загрузки":e.getMessage();
-                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed()&&ui.isShowing())
+                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
                     ui.fail(message,()->download(a,release,ui));});
             }
         });
