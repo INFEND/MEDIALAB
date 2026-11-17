@@ -24,6 +24,7 @@ public final class MediaOtaDialog {
  private int displayedProgress=0;
  private long receivedBytes=0L;
  private long expectedBytes=-1L;
+ private long displayedBytes=0L;
  private enum State { CHECK, OFFER, DOWNLOAD, VERIFY, READY, CURRENT, ERROR }
  private State state=State.CHECK;
  private int dp(int n){return (int)(n*activity.getResources().getDisplayMetrics().density+.5f);}
@@ -33,7 +34,7 @@ public final class MediaOtaDialog {
  }
  private TextView label(String s,int size,int color){
   TextView v=new TextView(activity);v.setText(s);v.setTextColor(color);
-  v.setTextSize(size);return v;
+  v.setTextSize(size);v.setIncludeFontPadding(false);return v;
  }
  public MediaOtaDialog(Activity a,int tint){
   activity=a;accent=tint;int mode=a.getPreferences(0).getInt("theme",0);
@@ -44,15 +45,17 @@ public final class MediaOtaDialog {
   root.setPadding(dp(22),dp(22),dp(22),dp(20));
   root.setBackground(bg(light?0xfff9fbfd:mode==1?0xff101012:0xff15212d,light?0xffdce3ec:0xff304050));
   LinearLayout header=new LinearLayout(a);header.setGravity(Gravity.CENTER_VERTICAL);
-  LinearLayout.LayoutParams spinLp=new LinearLayout.LayoutParams(dp(39),dp(39));spinLp.rightMargin=dp(15);
+  LinearLayout.LayoutParams spinLp=new LinearLayout.LayoutParams(dp(53),dp(53));spinLp.rightMargin=dp(15);
   FrameLayout ringFrame=new FrameLayout(a);
+  ringFrame.setBackground(bg((tint&0x00ffffff)|0x22000000,0));
   ring=new OtaRingView(a,tint);
-  ringFrame.addView(ring,new FrameLayout.LayoutParams(dp(39),dp(39),Gravity.CENTER));
+  ringFrame.addView(ring,new FrameLayout.LayoutParams(dp(33),dp(33),Gravity.CENTER));
   header.addView(ringFrame,spinLp);
   title=label("Обновление MediaLAB",20,fg);title.setTypeface(null,Typeface.BOLD);
-  header.addView(title);root.addView(header);
+  LinearLayout titles=new LinearLayout(a);titles.setOrientation(LinearLayout.VERTICAL);
+  titles.addView(title);header.addView(titles,new LinearLayout.LayoutParams(0,-2,1));root.addView(header);
   subtitle=label("БЕЗОПАСНОЕ ОБНОВЛЕНИЕ",10,muted);subtitle.setTypeface(null,Typeface.BOLD);
-  LinearLayout.LayoutParams sublp=new LinearLayout.LayoutParams(-1,-2);sublp.topMargin=dp(8);root.addView(subtitle,sublp);
+  LinearLayout.LayoutParams sublp=new LinearLayout.LayoutParams(-1,-2);sublp.topMargin=dp(8);titles.addView(subtitle,sublp);
   detail=label("Подключение к серверу…",13,muted);
   LinearLayout.LayoutParams dlp=new LinearLayout.LayoutParams(-1,-2);dlp.topMargin=dp(16);
   root.addView(detail,dlp);
@@ -100,7 +103,7 @@ public final class MediaOtaDialog {
  public void stage(String message,String hint){
   state=(message.toLowerCase(new Locale("ru")).contains("провер") && (message.toLowerCase(new Locale("ru")).contains("apk") || message.toLowerCase(new Locale("ru")).contains("подпис") || message.toLowerCase(new Locale("ru")).contains("sha"))) ? State.VERIFY : State.CHECK;
   title.setText(message);detail.setText(hint);ring.setChecking(true);
-  receivedBytes=0L;expectedBytes=-1L;
+  receivedBytes=0L;expectedBytes=-1L;displayedBytes=0L;
   progress.setIndeterminate(true);secondary.setText("СКРЫТЬ");
   primary.setVisibility(View.GONE);bytes.setText("");percent.setText("");
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}displayedProgress=0;
@@ -131,7 +134,8 @@ public final class MediaOtaDialog {
   bytes.setText(total>0?String.format(new Locale("ru"),"%.1f / %.1f МБ",done/1048576d,total/1048576d):String.format(new Locale("ru"),"%.1f МБ",done/1048576d));
   if(total>0){int value=(int)Math.min(1000L,Math.max(0L,done)*1000d/total);
    if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
-   int from=Math.max(progress.getProgress(),displayedProgress);
+   int from=progress.getProgress();
+   final long fromBytes=displayedBytes;
    // A late or duplicate callback must not visually roll the download backwards.
    value=Math.max(from,value);
    final int target=value;
@@ -141,6 +145,8 @@ public final class MediaOtaDialog {
    numberAnimation.addUpdateListener(animation->{
     int shown=(int)animation.getAnimatedValue();
     progress.setProgress(shown);ring.setProgressFraction(shown/1000f);percent.setText(shown/10+"%");
+    displayedBytes=fromBytes+(long)((done-fromBytes)*animation.getAnimatedFraction());
+    bytes.setText(String.format(new Locale("ru"),"%.1f / %.1f МБ",displayedBytes/1048576d,total/1048576d));
    });
    numberAnimation.start();displayedProgress=target;}
   else {percent.setText("");ring.setChecking(true);ring.setProgressFraction(0f);}
@@ -181,13 +187,21 @@ public final class MediaOtaDialog {
   for(String line:input.split("\\n",-1)){
    if(result.length()>0)result.append("\n");
    int start=result.length();
-   result.append(line);
+   String shown=line.replace("**","");
+   result.append(shown);
+   java.util.regex.Matcher matcher=java.util.regex.Pattern.compile("\\*\\*(.+?)\\*\\*").matcher(line);
+   int removed=0;
+   while(matcher.find()){
+    int begin=start+matcher.start()-removed;
+    result.setSpan(new android.text.style.StyleSpan(Typeface.BOLD),begin,begin+matcher.group(1).length(),33);
+    removed+=4;
+   }
    int tint=line.startsWith("[+]")?0xff4dd69c:line.startsWith("[-]")?0xfff07878:line.startsWith("[=]")?0xffffaa4d:0;
    if(tint!=0){
     result.setSpan(new android.text.style.ForegroundColorSpan(tint),start,start+3,33);
     result.setSpan(new android.text.style.StyleSpan(Typeface.BOLD),start,start+3,33);
    }else if(line.startsWith("Версия ")){
-    result.setSpan(new android.text.style.StyleSpan(Typeface.BOLD),start,start+line.length(),33);
+    result.setSpan(new android.text.style.StyleSpan(Typeface.BOLD),start,start+shown.length(),33);
    }
   }
   return result;
