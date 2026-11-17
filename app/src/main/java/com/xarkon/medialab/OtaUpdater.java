@@ -200,7 +200,7 @@ public final class OtaUpdater {
                         if(data.size()+n>MAX_MANIFEST_BYTES)throw new IOException("Слишком большой манифест");
                         data.write(b,0,n);
                     }
-                }
+                } finally {((HttpURLConnection)conn).disconnect();}
                 Release release=new Release(new JSONObject(data.toString("UTF-8")));
                 long installed=a.getPackageManager().getPackageInfo(a.getPackageName(),0).getLongVersionCode();
                 main.post(()->{
@@ -241,7 +241,7 @@ public final class OtaUpdater {
                                 ui.downloading(received,release.size);});
                         }
                     }
-                }
+                } finally {((HttpURLConnection)conn).disconnect();}
                 if(got!=release.size||!release.sha.equals(hex(digest.digest())))
                     throw new IOException("SHA-256 или размер APK не совпадают");
                 main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())ui.stage("Проверка подписи APK…","Сверяем сертификат");});
@@ -251,11 +251,25 @@ public final class OtaUpdater {
                 checkSigner(a,temp);
                 java.nio.file.Files.move(temp.toPath(),target.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING,java.nio.file.StandardCopyOption.ATOMIC_MOVE);
                 main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
-                    ui.ready(release.name,()->install(a,ui));});
+                    ui.ready(release.name,()->verifyAndInstall(a,release,ui));});
             }catch(Exception e){
                 temp.delete();String message=e.getMessage()==null?"Ошибка загрузки":e.getMessage();
                 main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
                     ui.fail(message,()->download(a,release,ui));});
+            }
+        });
+    }
+    private static void verifyAndInstall(Activity a,Release release,MediaOtaDialog ui){
+        ui.stage("Проверка APK…","Сверяем SHA-256 перед установкой");
+        worker.execute(()->{
+            try{
+                File apk=file(a);
+                if(!apk.isFile()||apk.length()!=release.size||!release.sha.equals(hash(apk)))
+                    throw new IOException("APK изменён или повреждён. Загрузите обновление повторно.");
+                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())install(a,ui);});
+            }catch(Exception e){
+                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
+                    ui.fail(e.getMessage()==null?"Ошибка проверки APK":e.getMessage(),()->download(a,release,ui));});
             }
         });
     }
