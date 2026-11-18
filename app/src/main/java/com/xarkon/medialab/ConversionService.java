@@ -226,7 +226,7 @@ public final class ConversionService extends Service {
         try {
             if (files.isEmpty()) throw new IllegalArgumentException("Не переданы исходные файлы");
             acquireWakeLock();
-            FFmpegKitConfig.enableStatisticsCallback(stat -> {
+            FFmpegKitConfig.enableStatisticsCallback(cfg.quality==SmartCompression.QUALITY?null:stat -> {
                 long total = activeClipMs;
                 if (total <= 0 || !state.running) return;
                 double portion = Math.min(0.99, Math.max(0.0, stat.getTime() / (double) total));
