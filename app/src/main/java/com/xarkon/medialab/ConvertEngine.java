@@ -355,7 +355,7 @@ final class ConvertEngine {
     }
     /** Preview from the interior of the file, avoiding credits/intro and outro. */
     static List<Long> previewStarts(long durationMs,long clipMs){
-        return java.util.Collections.singletonList(Math.max(0,(durationMs-Math.min(durationMs,clipMs))/2));
+        return AscVideoOptions.sampleStarts(durationMs,clipMs);
     }
 
     private static long parseLong(String v) {
