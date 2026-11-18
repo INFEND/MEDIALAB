@@ -201,15 +201,19 @@ public final class OtaUpdater {
     public static void checkAndOffer(Activity a,int accent){
         if(a.isFinishing()||a.isDestroyed())return;
         MediaOtaDialog existing=active.get();
-        if(owner.get()==a && existing!=null){existing.show();return;}
+        if(owner.get()==a && existing!=null){
+            existing.show();
+            if(!busy && existing.needsRefresh())check(a,accent,existing);
+            return;
+        }
         MediaOtaDialog ui=new MediaOtaDialog(a,accent);
         owner=new java.lang.ref.WeakReference<>(a);active=new java.lang.ref.WeakReference<>(ui);
         ui.show();
-        if(busy&&snapshot!=null){ui.setHistory(sessionNotes);snapshot.accept(ui);return;}
+        if(snapshot!=null && (busy || !sessionNotes.isEmpty())){ui.setHistory(sessionNotes);snapshot.accept(ui);if(busy||!ui.needsRefresh())return;}
         check(a,accent,ui);
     }
     private static void check(Activity a,int accent,MediaOtaDialog ui){
-        sessionNotes="";busy=true;publish(d->d.stage("Проверка соединения…","Подключение к серверу…"));
+        sessionNotes="";busy=true;publish(d->{d.setHistory("");d.stage("Проверка соединения…","Подключение к серверу…");});
         worker.execute(()->{
             try{
                 URLConnection conn=connection(MANIFEST);
@@ -292,6 +296,7 @@ public final class OtaUpdater {
                     }finally{conn.disconnect();}
                 }
                 if(got!=release.size)throw new IOException("Загрузка прервана. Повторите для продолжения.");
+                main.post(()->publish(d->d.stage("Проверка SHA-256 APK…","Проверяем целостность загруженного файла")));
                 if(!release.sha.equals(hash(temp))){
                     temp.delete();
                     throw new IOException("SHA-256 APK не совпадает");
