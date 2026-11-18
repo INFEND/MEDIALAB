@@ -120,6 +120,7 @@ public final class MediaOtaDialog {
   });
  }
  public boolean isShowing(){return dialog.isShowing();}
+ public boolean needsRefresh(){return state==State.CURRENT||state==State.ERROR;}
  public void stage(String message,String hint){
   state=(message.toLowerCase(new Locale("ru")).contains("провер") && (message.toLowerCase(new Locale("ru")).contains("apk") || message.toLowerCase(new Locale("ru")).contains("подпис") || message.toLowerCase(new Locale("ru")).contains("sha"))) ? State.VERIFY : State.CHECK;
   title.setText("Обновление MediaLAB");stageLabel.setText(message);detail.setText(hint);ring.setChecking(dialog.isShowing());
