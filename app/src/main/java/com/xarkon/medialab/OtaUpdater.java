@@ -293,6 +293,8 @@ public final class OtaUpdater {
             i.setClipData(android.content.ClipData.newRawUri("MediaLAB",uri));
             i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_ACTIVITY_NEW_TASK);
             a.getApplicationContext().startActivity(i);
+            // The installer may be cancelled; restore the verified offer instead of leaving VERIFY spinning forever.
+            ui.ready(release.name,()->verifyAndInstall(a,release,ui));
         }catch(Exception e){
             ui.fail(e.getMessage()==null?"Ошибка установки":e.getMessage(),()->verifyAndInstall(a,release,ui));
         }
