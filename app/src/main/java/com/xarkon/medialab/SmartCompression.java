@@ -25,8 +25,8 @@ final class SmartCompression {
     }
     /** Keep real failure categories instead of hiding native errors behind a quality message. */
     private static final class Diagnostics {
-        int encodes, durationFailures, qualityFailures, nativeFailures;
-        boolean fullAttempted;
+        int encodes, durationFailures, qualityFailures, nativeFailures, sizeFailures, fullAttempts;
+        boolean fullAttempted, lastOversize;
         String last="";
         final LinkedHashSet<String> recent=new LinkedHashSet<>();
         void note(String msg){
@@ -36,6 +36,7 @@ final class SmartCompression {
         String details(){
             return "Кодирование: "+encodes+"; ошибки FFmpeg: "+nativeFailures+
                     "; длительность: "+durationFailures+"; качество: "+qualityFailures+
+                    "; размер: "+sizeFailures+"; полных попыток: "+fullAttempts+
                     (last.isEmpty()?"":". "+String.join(" | ",recent));
         }
     }
@@ -69,6 +70,8 @@ final class SmartCompression {
         if(best!=null) best.file.delete();
         if(imageFormatChange)
             throw new IOException("ASC PRO: не удалось получить проверенное изображение в формате "+cfg.format.toUpperCase(Locale.ROOT)+". Исходный файл не изменён.");
+        if(cfg.mode==ConvertEngine.VIDEO)
+            throw new IOException("ASC PRO: не удалось получить проверенное видео меньшего размера. Копия оригинала не создана. "+diagnostics.details()+". Исходный файл не изменён.");
         if(length>0 || cfg.mode==ConvertEngine.EXTRACT)
             throw new IOException("ASC PRO: проверенный результат не найден. "+diagnostics.details()+". Исходный файл не изменён.");
         status.update("ASC PRO: исходник уже оптимален или проверка качества не пройдена");
@@ -233,8 +236,7 @@ final class SmartCompression {
             if("audio".equals(stream.getType()))audios++;
         }
         if(video && (videos!=1 || props.contains("smpte2084") || props.contains("arib-std-b67") || props.contains("dovi"))){
-            if(preview)throw new IOException(videos!=1?"ASC PRO: требуется одна видеодорожка; исходный файл не изменён.":"ASC PRO: HDR / Dolby Vision требует сохранения расширенного цветового диапазона. Сжатие не подтверждено; исходный файл не изменён.");
-            return null;
+            throw new IOException(videos!=1?"ASC PRO: требуется одна видеодорожка; исходный файл не изменён.":"ASC PRO: HDR / Dolby Vision требует сохранения расширенного цветового диапазона. Сжатие не подтверждено; исходный файл не изменён.");
         }
         if(!video && (audios<1 || (cfg.mode==ConvertEngine.AUDIO && (audios!=1 || mi.getStreams().size()!=1))))return null;
         // Exactly the same codec settings for the real 5-second sample and export.
@@ -245,8 +247,8 @@ final class SmartCompression {
             Result full=encodeFull(ctx,in,cfg,inf,cached,video,c,status,d);
             if(full!=null)return full;
             forget(sourceKey);
-            // Do not spend time repeating full encodes. Preserve the original if the full gate fails.
-            if(cfg.mode!=ConvertEngine.EXTRACT)return null;
+            // A cached sample is not a guarantee for the entire video. Try other plans.
+            if(!video&&cfg.mode!=ConvertEngine.EXTRACT)return null;
         }
         Set<String> availableEncoders=video?ConvertEngine.videoEncoders():Collections.emptySet();
         String[] codecs=video?AscVideoOptions.codecs(availableEncoders,cfg.performance):new String[]{"libopus","aac","flac"};
@@ -314,24 +316,34 @@ final class SmartCompression {
                     }
                 }finally{if(test!=null)test.file.delete();}
                 if(!pass)continue;
+                // Bound expensive whole-video retries, but do not stop at the first rejected plan.
+                if(video&&d.fullAttempts>=4)return null;
                 d.fullAttempted=true;
                 Result full=encodeFull(ctx,original,cfg,inf,candidate,video,c,status,d);
                 if(full!=null)return full;
                 forget(sourceKey);
-                if(cfg.mode!=ConvertEngine.EXTRACT)return null;
+                if(!video&&cfg.mode!=ConvertEngine.EXTRACT)return null;
+                if(video&&d.lastOversize)break; // higher-quality steps of this codec are unlikely to be smaller
             }
         }
         return null;
     }
     private static Result encodeFull(Context ctx,File in,ConvertEngine.Config cfg,ConvertEngine.MediaInfo inf,
                                      Plan plan,boolean video,ConvertEngine.Canceled c,Status status,Diagnostics d)throws IOException{
-        status.update("ASC PRO · основное кодирование "+plan.codec);
+        d.fullAttempts++;
+        d.lastOversize=false;
+        status.update("ASC PRO · основное кодирование "+plan.codec+" · попытка "+d.fullAttempts);
         Result full=encodeCandidate(ctx,in,cfg,plan.codec,plan.q,plan.bitrate,0,0,c,d);
         if(full==null)return null;
         try{
-            if(cfg.mode!=ConvertEngine.EXTRACT&&full.file.length()>=in.length())return null;
+            if(cfg.mode!=ConvertEngine.EXTRACT&&full.file.length()>=in.length()){
+                d.sizeFailures++;d.lastOversize=true;
+                d.note(plan.codec+": результат не меньше оригинала ("+full.file.length()+" / "+in.length()+" байт)");return null;
+            }
             long actual=ConvertEngine.info(full.file).durationMs;
-            if(inf.durationMs>0&&(actual<=0||Math.abs(actual-inf.durationMs)>Math.max(120,inf.durationMs/100)))return null;
+            if(inf.durationMs>0&&(actual<=0||Math.abs(actual-inf.durationMs)>Math.max(120,inf.durationMs/100))){
+                d.durationFailures++;d.note(plan.codec+": полная длительность "+actual+" мс вместо "+inf.durationMs+" мс");return null;
+            }
             status.update("ASC PRO · полный контроль качества "+plan.codec);
             if(!checkCandidate(ctx,in,full,video,0,0,cfg.performance,c,d))return null;
             Result result=full;full=null;return result;
