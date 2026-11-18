@@ -162,9 +162,9 @@ public final class OtaUpdater {
         if(info==null)return null;
         if(Build.VERSION.SDK_INT>=28 && info.signingInfo!=null){
             android.content.pm.Signature[] sig=info.signingInfo.getApkContentsSigners();
-            return sig.length>0?sig[0].toByteArray():null;
+            return sig!=null&&sig.length==1?sig[0].toByteArray():null;
         }
-        return info.signatures!=null&&info.signatures.length>0?info.signatures[0].toByteArray():null;
+        return info.signatures!=null&&info.signatures.length==1?info.signatures[0].toByteArray():null;
     }
     private static void checkSigner(Activity a, File downloaded) throws Exception {
         int flags=Build.VERSION.SDK_INT>=28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
