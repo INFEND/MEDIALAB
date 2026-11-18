@@ -19,7 +19,7 @@ public final class MediaOtaDialog {
  private final ProgressBar progress;
  private final OtaRingView ring;
  private final ScrollView history;
- private final int accent;
+ private final int accent, themeMode;
  private android.animation.ValueAnimator numberAnimation;
  private int displayedProgress=0;
  private long receivedBytes=0L;
@@ -39,7 +39,7 @@ public final class MediaOtaDialog {
  }
  public MediaOtaDialog(Activity a,int tint){
   activity=a;accent=tint;int mode=a.getPreferences(0).getInt("theme",0);
-  boolean light=mode==2;int fg=light?0xff182633:Color.WHITE;
+  themeMode=mode;boolean light=mode==2;int fg=light?0xff182633:Color.WHITE;
   int muted=light?0xff607589:0xffa4b4c3;
   dialog=new Dialog(a);dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
   LinearLayout root=new LinearLayout(a);root.setOrientation(1);
@@ -119,6 +119,8 @@ public final class MediaOtaDialog {
    if(dialog.isShowing()&&content.getHeight()>maxHeight)w.setLayout(p.width,maxHeight);
   });
  }
+ public boolean matchesAppearance(int tint,int mode){return accent==tint&&themeMode==mode;}
+ public void dismiss(){dialog.dismiss();}
  public boolean isShowing(){return dialog.isShowing();}
  public boolean needsRefresh(){return state==State.CURRENT||state==State.ERROR;}
  public void stage(String message,String hint){
@@ -158,7 +160,7 @@ public final class MediaOtaDialog {
   progress.setIndeterminate(total<=0);
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   if(total<=0){
-   displayedBytes=done;bytes.setText(String.format(new Locale("ru"),"%.1f МБ",done/1048576d));
+   displayedBytes=done;bytes.setText(ConvertEngine.humanBytes(done));
    percent.setText("");ring.setChecking(dialog.isShowing());return;
   }
   final long fromBytes=Math.min(displayedBytes,done);
@@ -180,7 +182,7 @@ public final class MediaOtaDialog {
   displayedProgress=ratio;
   progress.setProgress(ratio);ring.setProgressFraction(ratio/1000f);
   percent.setText(ratio/10+"%");
-  bytes.setText(String.format(new Locale("ru"),"%.1f / %.1f МБ",loaded/1048576d,total/1048576d));
+  bytes.setText(ConvertEngine.humanBytes(loaded)+" / "+ConvertEngine.humanBytes(total));
  }
 
  public void ready(String version,Runnable install){
