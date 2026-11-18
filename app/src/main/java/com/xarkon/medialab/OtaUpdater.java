@@ -125,6 +125,9 @@ public final class OtaUpdater {
     }
 
     private static URLConnection connection(String url) throws IOException {
+        return connection(url,0);
+    }
+    private static URLConnection connection(String url,long offset) throws IOException {
         URL u=new URL(url);
         for(int redirects=0;redirects<=5;redirects++){
             String host=u.getHost().toLowerCase(Locale.US);
@@ -137,10 +140,12 @@ public final class OtaUpdater {
             c.setInstanceFollowRedirects(false);
             c.setConnectTimeout(15000);c.setReadTimeout(25000);
             c.setRequestProperty("User-Agent","MediaLAB-OTA/1.0");
+            c.setRequestProperty("Accept-Encoding","identity");
+            if(offset>0)c.setRequestProperty("Range","bytes="+offset+"-");
             boolean keep=false;
             try {
                 int status=c.getResponseCode();
-                if(status==200){keep=true;return c;}
+                if(status==200 || (offset>0 && status==206)){keep=true;return c;}
                 if(status!=301 && status!=302 && status!=303 && status!=307 && status!=308)
                     throw new IOException("Ошибка HTTP "+status);
                 String location=c.getHeaderField("Location");
@@ -218,7 +223,7 @@ public final class OtaUpdater {
     private static void download(Activity a,Release release,MediaOtaDialog ui){
         ui.stage("Подготовка загрузки…","MediaLAB "+release.name);
         worker.execute(()->{
-            File target=file(a),temp=new File(target.getParentFile(),"MediaLAB-candidate.apk");
+            File target=file(a),temp=new File(target.getParentFile(),"MediaLAB-candidate-"+release.sha+".apk");
             try{
                 if(!target.getParentFile().exists()&&!target.getParentFile().mkdirs())
                     throw new IOException("Не удалось создать папку OTA");
@@ -239,38 +244,59 @@ public final class OtaUpdater {
                     main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
                         ui.stage("Подготовка загрузки…","MediaLAB "+release.name);});
                 }
-                if(target.getParentFile().getUsableSpace()<release.size+4L*1024*1024)
+                // Partial files are bound to the exact manifest digest, never reused across releases.
+                File[] stale=target.getParentFile().listFiles();
+                if(stale!=null)for(File old:stale)
+                    if(old.getName().startsWith("MediaLAB-candidate")&&!old.equals(temp))old.delete();
+                long offset=temp.isFile()?temp.length():0;
+                if(offset>release.size){temp.delete();offset=0;}
+                if(target.getParentFile().getUsableSpace()<release.size-offset+4L*1024*1024)
                     throw new IOException("Недостаточно места для обновления");
-                URLConnection conn=connection(release.url);
-                MessageDigest digest=MessageDigest.getInstance("SHA-256");
-                long got=0,lastUi=0;int lastPercent=-1;
-                try(InputStream in=conn.getInputStream();OutputStream out=new FileOutputStream(temp)){
-                    byte[] b=new byte[65536];int n;
-                    while((n=in.read(b))!=-1){
-                        got+=n;
-                        if(got>MAX_SIZE||got>release.size)throw new IOException("Неверный размер APK");
-                        out.write(b,0,n);digest.update(b,0,n);
-                        int pct=(int)Math.min(100,got*100/release.size);
-                        long now=android.os.SystemClock.uptimeMillis();
-                        if(pct==100||(pct!=lastPercent&&now-lastUi>=120)){
-                            lastUi=now;lastPercent=pct;long received=got;
-                            main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
-                                ui.downloading(received,release.size);});
+                long got=offset;
+                if(offset<release.size){
+                    HttpURLConnection conn=(HttpURLConnection)connection(release.url,offset);
+                    try {
+                        if(conn.getResponseCode()==206){
+                            String expected="bytes "+offset+"-"+(release.size-1)+"/"+release.size;
+                            if(!expected.equals(conn.getHeaderField("Content-Range"))){
+                                temp.delete();
+                                throw new IOException("Неверный диапазон загрузки APK");
+                            }
+                        }else got=0; // Server ignored Range: restart safely.
+                        final long initial=got;
+                        main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())ui.downloading(initial,release.size);});
+                        long lastUi=0;int lastPercent=-1;
+                        try(InputStream in=conn.getInputStream();OutputStream out=new FileOutputStream(temp,got>0)){
+                            byte[] b=new byte[65536];int n;
+                            while((n=in.read(b))!=-1){
+                                if(n>release.size-got){temp.delete();throw new IOException("Неверный размер APK");}
+                                out.write(b,0,n);got+=n;
+                                int pct=(int)Math.min(100,got*100/release.size);
+                                long now=android.os.SystemClock.uptimeMillis();
+                                if(pct==100||(pct!=lastPercent&&now-lastUi>=120)){
+                                    lastUi=now;lastPercent=pct;long received=got;
+                                    main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())ui.downloading(received,release.size);});
+                                }
+                            }
                         }
-                    }
-                } finally {((HttpURLConnection)conn).disconnect();}
-                if(got!=release.size||!release.sha.equals(hex(digest.digest())))
-                    throw new IOException("SHA-256 или размер APK не совпадают");
+                    }finally{conn.disconnect();}
+                }
+                if(got!=release.size)throw new IOException("Загрузка прервана. Повторите для продолжения.");
+                if(!release.sha.equals(hash(temp))){
+                    temp.delete();
+                    throw new IOException("SHA-256 APK не совпадает");
+                }
                 main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())ui.stage("Проверка подписи APK…","Сверяем сертификат");});
                 PackageInfo archive=a.getPackageManager().getPackageArchiveInfo(temp.getAbsolutePath(),0);
-                if(archive==null||archive.getLongVersionCode()!=release.code)
-                    throw new IOException("Версия APK не совпадает с манифестом");
-                checkSigner(a,temp);
+                if(archive==null||archive.getLongVersionCode()!=release.code){
+                    temp.delete();throw new IOException("Версия APK не совпадает с манифестом");
+                }
+                try{checkSigner(a,temp);}catch(Exception invalid){temp.delete();throw invalid;}
                 java.nio.file.Files.move(temp.toPath(),target.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING,java.nio.file.StandardCopyOption.ATOMIC_MOVE);
                 main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
                     ui.ready(release.name,()->verifyAndInstall(a,release,ui));});
             }catch(Exception e){
-                temp.delete();String message=e.getMessage()==null?"Ошибка загрузки":e.getMessage();
+                String message=e.getMessage()==null?"Ошибка загрузки":e.getMessage();
                 main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
                     ui.fail(message,()->download(a,release,ui));});
             }
