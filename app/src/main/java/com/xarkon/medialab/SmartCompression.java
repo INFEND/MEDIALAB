@@ -224,13 +224,20 @@ final class SmartCompression {
         // Per-session callbacks: a global callback cannot identify parallel exports.
         java.util.concurrent.CountDownLatch done=new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.atomic.AtomicLong mediaMs=new java.util.concurrent.atomic.AtomicLong();
+        java.util.concurrent.atomic.AtomicLong frames=new java.util.concurrent.atomic.AtomicLong();
         java.util.concurrent.atomic.AtomicLong lastAdvance=new java.util.concurrent.atomic.AtomicLong(android.os.SystemClock.elapsedRealtime());
-        FFmpegSession session=FFmpegKit.executeWithArgumentsAsync(args.toArray(new String[0]),
-                finished->done.countDown(),null,stat->{
-                    long time=Math.max(0L,(long)stat.getTime());
-                    long previous=mediaMs.getAndAccumulate(time,Math::max);
-                    if(time>previous)lastAdvance.set(android.os.SystemClock.elapsedRealtime());
-                });
+        java.util.concurrent.ExecutorService executor=java.util.concurrent.Executors.newSingleThreadExecutor();
+        FFmpegSession session;
+        try{
+            session=FFmpegKit.executeWithArgumentsAsync(args.toArray(new String[0]),
+                    finished->done.countDown(),null,stat->{
+                        long time=Math.max(0L,(long)stat.getTime());
+                        long frame=Math.max(0L,(long)stat.getVideoFrameNumber());
+                        long previous=mediaMs.getAndAccumulate(time,Math::max);
+                        long previousFrame=frames.getAndAccumulate(frame,Math::max);
+                        if(time>previous||frame>previousFrame)lastAdvance.set(android.os.SystemClock.elapsedRealtime());
+                    },executor);
+        }finally{executor.shutdown();} // each batch worker owns its session, no shared executor queue
         if(session==null){d.nativeFailures++;d.note(stage+": нет сессии FFmpeg");return null;}
         boolean hardware=(stage.startsWith("Кодек ")||stage.startsWith("Проба "))&&stage.contains("_mediacodec");
         long started=android.os.SystemClock.elapsedRealtime();
@@ -251,7 +258,7 @@ final class SmartCompression {
                 int percent=from+(int)((to-from)*fraction);
                 String position=expectedMs>0?clock(time)+" / "+clock(expectedMs):clock(time);
                 if(d.status!=null)d.status.progress("ASC PRO · "+stage+" · "+position+
-                        " · "+(now-started)/1000+" с"+(from>0?" · "+(int)(fraction*100)+"% этапа":""),percent);
+                        " · "+frames.get()+" кадров · "+(now-started)/1000+" с"+(from>0?" · "+(int)(fraction*100)+"% этапа":""),percent);
             }
         }catch(InterruptedException e){
             FFmpegKit.cancel(session.getSessionId());Thread.currentThread().interrupt();
