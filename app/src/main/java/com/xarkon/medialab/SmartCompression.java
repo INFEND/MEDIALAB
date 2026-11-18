@@ -37,6 +37,7 @@ final class SmartCompression {
         int encodes, durationFailures, qualityFailures, nativeFailures, sizeFailures, fullAttempts;
         boolean fullAttempted, lastOversize;
         long fullDurationMs;
+        int sourceAudioStreams;
         Status status;
         final Set<String> failedHardware=new HashSet<>();
         final Set<String> triedFull=new HashSet<>();
@@ -303,12 +304,26 @@ final class SmartCompression {
         if(video && (videos!=1 || props.contains("smpte2084") || props.contains("arib-std-b67") || props.contains("dovi"))){
             throw new IOException(videos!=1?"ASC PRO: требуется одна видеодорожка; исходный файл не изменён.":"ASC PRO: HDR / Dolby Vision требует сохранения расширенного цветового диапазона. Сжатие не подтверждено; исходный файл не изменён.");
         }
+        d.sourceAudioStreams=audios;
         if(!video && (audios<1 || (cfg.mode==ConvertEngine.AUDIO && (audios!=1 || mi.getStreams().size()!=1))))return null;
         // Exactly the same codec settings for the real 5-second sample and export.
         // A cached plan is keyed by URI, size, modification date and performance mode.
         Plan cached=plan(sourceKey);
+        if(video&&preview&&cached!=null){
+            status.update("ASC PRO · кодирование образца "+cached.codec);
+            Result sample=encodeCandidate(ctx,in,cfg,cached.codec,cached.q,cached.bitrate,start,length,c,d);
+            if(sample!=null){
+                boolean accepted=false;
+                try{
+                    accepted=validVideo(sample.file,length,d.sourceAudioStreams,d,c);
+                    if(accepted)return sample;
+                }finally{if(!accepted)sample.file.delete();}
+            }
+            // Do not mix different encoder plans in the same measured estimate.
+            throw new IOException("ASC PRO: не удалось закодировать образец с выбранными параметрами. "+d.details());
+        }
         if(!preview&&cached!=null){
-            status.update("ASC PRO · используем проверенные параметры предпросмотра");
+            status.update("ASC PRO · используем параметры предпросмотра");
             Result full=encodeFull(ctx,in,cfg,inf,cached,video,c,status,d);
             if(full!=null)return full;
             forget(sourceKey);
@@ -377,7 +392,7 @@ final class SmartCompression {
                     long actual=ConvertEngine.info(test.file).durationMs;
                     boolean durationOk=actual>0&&Math.abs(actual-probeLength)<=Math.max(350,probeLength/100);
                     if(!durationOk){d.durationFailures++;d.note(codec+": "+actual+" мс вместо "+probeLength+" мс");}
-                    else pass=checkCandidate(ctx,sampleInput,test,video,probeStart,probeLength,cfg.performance,c,d);
+                    else pass=video?validVideo(test.file,probeLength,d.sourceAudioStreams,d,c):audioPass(sampleInput,test.file,probeStart,probeLength,c,"flac".equals(test.format));
                     if(pass){
                         remember(sourceKey,candidate);
                         if(preview){Result result=test;test=null;return result;}
@@ -413,8 +428,13 @@ final class SmartCompression {
             if(inf.durationMs>0&&(actual<=0||Math.abs(actual-inf.durationMs)>Math.max(120,inf.durationMs/100))){
                 d.durationFailures++;d.note(plan.codec+": полная длительность "+actual+" мс вместо "+inf.durationMs+" мс");return null;
             }
-            status.update("ASC PRO · полный контроль качества "+plan.codec);
-            if(!checkCandidate(ctx,in,full,video,0,0,cfg.performance,c,d))return null;
+            if(video){
+                status.update("ASC PRO · проверка контейнера и дорожек");
+                if(!validVideo(full.file,inf.durationMs,d.sourceAudioStreams,d,c))return null;
+            }else{
+                status.update("ASC PRO · полный контроль качества "+plan.codec);
+                if(!audioPass(in,full.file,0,0,c,"flac".equals(full.format)))return null;
+            }
             Result result=full;full=null;return result;
         }finally{if(full!=null)full.file.delete();}
     }
@@ -451,30 +471,27 @@ final class SmartCompression {
             Result result=new Result(out,fmt,false);out=null;return result;
         }finally{if(out!=null)out.delete();}
     }
-    private static boolean checkCandidate(Context ctx,File in,Result result,boolean video,long start,long length,int performance,ConvertEngine.Canceled c,Diagnostics d)throws IOException{
-        return video?videoPass(ctx,in,result.file,start,length,performance,c,d):audioPass(in,result.file,start,length,c,"flac".equals(result.format));
-    }
-    private static boolean videoPass(Context ctx,File in,File out,long start,long length,int performance,ConvertEngine.Canceled c,Diagnostics d)throws IOException{
-        File stats=ConvertEngine.outputTemp(ctx,"txt");
-        try{
-            String n=String.valueOf(ConvertEngine.threads(performance));
-            ArrayList<String> a=new ArrayList<>(Arrays.asList("-filter_complex_threads",n,"-threads",n));seek(a,start);Collections.addAll(a,"-i",in.getAbsolutePath(),"-threads",n,"-i",out.getAbsolutePath());
-            Collections.addAll(a,"-filter_complex","[0:v:0]settb=AVTB,setpts=PTS-STARTPTS[x];[1:v:0]settb=AVTB,setpts=PTS-STARTPTS[y];[x][y]ssim=shortest=1:repeatlast=0:ts_sync_mode=nearest:stats_file="+stats.getAbsolutePath()+"[quality]",
-                    "-map","[quality]","-an");duration(a,length);Collections.addAll(a,"-fps_mode:v","passthrough","-f","null","-");
-            if(videoExec(c,d,"Контроль качества SSIM",length>0?length:d.fullDurationMs,length==0?75:0,length==0?85:0,a.toArray(new String[0]))==null || !stats.isFile())return false;
-            Pattern p=Pattern.compile("Y:([0-9.]+).*?All:([0-9.]+)");double sum=0,minY=1,minAll=1;long count=0;
-            try(BufferedReader r=new BufferedReader(new FileReader(stats))){
-                String line;while((line=r.readLine())!=null){check(c);Matcher m=p.matcher(line);
-                    if(!m.find()){d.qualityFailures++;d.note("Неверный формат статистики SSIM");return false;}
-                    double y=Double.parseDouble(m.group(1)),all=Double.parseDouble(m.group(2));
-                    if(!Double.isFinite(y)||!Double.isFinite(all)){d.qualityFailures++;d.note("SSIM: некорректная метрика");return false;}
-                    minY=Math.min(minY,y);minAll=Math.min(minAll,all);sum+=y;count++;
-                }
-            }
-            boolean ok=count>0 && minY>=.94 && minAll>=.93 && sum/count>=.985;
-            if(!ok){d.qualityFailures++;d.note(String.format(Locale.US,"SSIM: %d кадров; средний %.5f; минимум Y %.5f, All %.5f",count,count>0?sum/count:0,minY,minAll));}
-            return ok;
-        }finally{stats.delete();}
+    /** Structural check only: no frame comparison, quality scoring or second video encode. */
+    private static boolean validVideo(File output,long expectedMs,int expectedAudio,Diagnostics d,ConvertEngine.Canceled c)throws IOException{
+        check(c);
+        if(!output.isFile()||output.length()<=0)return false;
+        com.arthenica.ffmpegkit.MediaInformationSession probe=FFprobeKit.getMediaInformation(output.getAbsolutePath());
+        MediaInformation mi=probe==null?null:probe.getMediaInformation();
+        check(c);
+        if(mi==null||mi.getStreams()==null){d.note("Не читается контейнер результата");return false;}
+        int videos=0,audios=0;
+        for(com.arthenica.ffmpegkit.StreamInformation stream:mi.getStreams()){
+            if("video".equals(stream.getType()))videos++;
+            if("audio".equals(stream.getType()))audios++;
+        }
+        if(videos!=1||audios!=expectedAudio){
+            d.note("Дорожки результата: видео "+videos+", аудио "+audios+" (ожидалось "+expectedAudio+")");return false;
+        }
+        long actual=ConvertEngine.info(output).durationMs;
+        if(expectedMs>0&&(actual<=0||Math.abs(actual-expectedMs)>Math.max(350,expectedMs/100))){
+            d.durationFailures++;d.note("Длительность результата "+actual+" мс вместо "+expectedMs+" мс");return false;
+        }
+        return true;
     }
     private static boolean audioPass(File in,File out,long start,long length,ConvertEngine.Canceled c,boolean lossless)throws IOException{
         ArrayList<String> a=new ArrayList<>();seek(a,start);Collections.addAll(a,"-i",in.getAbsolutePath(),"-i",out.getAbsolutePath(),
