@@ -28,8 +28,9 @@ public final class MediaOtaDialog {
  private enum State { CHECK, OFFER, DOWNLOAD, VERIFY, READY, CURRENT, ERROR }
  private State state=State.CHECK;
  private int dp(int n){return (int)(n*activity.getResources().getDisplayMetrics().density+.5f);}
- private GradientDrawable bg(int fill,int border){
-  GradientDrawable d=new GradientDrawable();d.setColor(fill);d.setCornerRadius(dp(19));
+ private GradientDrawable bg(int fill,int border){return bg(fill,border,15);}
+ private GradientDrawable bg(int fill,int border,int radius){
+  GradientDrawable d=new GradientDrawable();d.setColor(fill);d.setCornerRadius(dp(radius));
   if(border!=0)d.setStroke(dp(1),border);return d;
  }
  private TextView label(String s,int size,int color){
@@ -42,10 +43,10 @@ public final class MediaOtaDialog {
   int muted=light?0xff607589:0xffa4b4c3;
   dialog=new Dialog(a);dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
   LinearLayout root=new LinearLayout(a);root.setOrientation(1);
-  root.setPadding(dp(22),dp(22),dp(22),dp(20));
-  root.setBackground(bg(light?0xffffffff:mode==1?0xff101013:0xff14212d,light?0xffdce4ed:mode==1?0xff303036:0xff304252));
+  root.setPadding(dp(22),dp(22),dp(22),dp(19));
+  root.setBackground(bg(light?0xffffffff:mode==1?0xff101013:0xff14212d,light?0xffdce4ed:mode==1?0xff303036:0xff304252,25));
   LinearLayout header=new LinearLayout(a);header.setGravity(Gravity.CENTER_VERTICAL);
-  LinearLayout.LayoutParams spinLp=new LinearLayout.LayoutParams(dp(53),dp(53));spinLp.rightMargin=dp(15);
+  LinearLayout.LayoutParams spinLp=new LinearLayout.LayoutParams(dp(53),dp(53));spinLp.rightMargin=dp(14);
   FrameLayout ringFrame=new FrameLayout(a);
   ringFrame.setBackground(bg((tint&0x00ffffff)|0x22000000,0));
   ring=new OtaRingView(a,tint);
@@ -55,17 +56,17 @@ public final class MediaOtaDialog {
   LinearLayout titles=new LinearLayout(a);titles.setOrientation(LinearLayout.VERTICAL);
   titles.addView(title);header.addView(titles,new LinearLayout.LayoutParams(0,-2,1));root.addView(header);
   subtitle=label("БЕЗОПАСНОЕ ОБНОВЛЕНИЕ",10,muted);subtitle.setTypeface(null,Typeface.BOLD);
-  LinearLayout.LayoutParams sublp=new LinearLayout.LayoutParams(-1,-2);sublp.topMargin=dp(8);titles.addView(subtitle,sublp);
+  LinearLayout.LayoutParams sublp=new LinearLayout.LayoutParams(-1,-2);sublp.topMargin=dp(7);titles.addView(subtitle,sublp);
   stageLabel=label("Проверка соединения…",15,fg);stageLabel.setTypeface(null,Typeface.BOLD);
   LinearLayout.LayoutParams stageLp=new LinearLayout.LayoutParams(-1,-2);stageLp.topMargin=dp(25);root.addView(stageLabel,stageLp);
   detail=label("Подключение к серверу…",12,muted);
   LinearLayout.LayoutParams dlp=new LinearLayout.LayoutParams(-1,-2);dlp.topMargin=dp(7);
   root.addView(detail,dlp);
-  history=new ScrollView(a);history.setBackground(bg(light?0xffeff3f8:0xff0d141c,0));
-  notes=label("",13,fg);notes.setPadding(dp(12),dp(12),dp(12),dp(12));notes.setLineSpacing(dp(3),1f);
+  history=new ScrollView(a);history.setBackground(bg(light?0xfff3f6f9:0xff0c0f12,light?0xffdce4ed:mode==1?0xff303036:0xff304252));
+  notes=label("",13,fg);notes.setPadding(dp(13),dp(12),dp(13),dp(13));notes.setLineSpacing(dp(4),1f);
   history.setVerticalScrollBarEnabled(false);history.addView(notes);LinearLayout.LayoutParams hlp=new LinearLayout.LayoutParams(-1,dp(172));
-  hlp.topMargin=dp(14);root.addView(history,hlp);history.setVisibility(View.GONE);
-  LinearLayout numbers=new LinearLayout(a);
+  hlp.topMargin=dp(15);root.addView(history,hlp);history.setVisibility(View.GONE);
+  LinearLayout numbers=new LinearLayout(a);numbers.setGravity(Gravity.CENTER_VERTICAL);
   LinearLayout.LayoutParams nlp=new LinearLayout.LayoutParams(-1,-2);nlp.topMargin=dp(22);
   root.addView(numbers,nlp);
   bytes=label("",13,fg);bytes.setTypeface(null,Typeface.BOLD);numbers.addView(bytes,new LinearLayout.LayoutParams(0,-2,1));
@@ -75,16 +76,16 @@ public final class MediaOtaDialog {
   progress.setProgressTintList(ColorStateList.valueOf(tint));
   progress.setIndeterminateTintList(ColorStateList.valueOf(tint));
   progress.setProgressBackgroundTintList(ColorStateList.valueOf(light?0xffe9eef3:0xff2a3139));
-  LinearLayout.LayoutParams plp=new LinearLayout.LayoutParams(-1,dp(6));plp.topMargin=dp(10);
+  LinearLayout.LayoutParams plp=new LinearLayout.LayoutParams(-1,dp(7));plp.topMargin=dp(12);
   root.addView(progress,plp);
-  LinearLayout actions=new LinearLayout(a);actions.setGravity(Gravity.END);
-  LinearLayout.LayoutParams alp=new LinearLayout.LayoutParams(-1,-2);alp.topMargin=dp(20);
+  LinearLayout actions=new LinearLayout(a);actions.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+  LinearLayout.LayoutParams alp=new LinearLayout.LayoutParams(-1,-2);alp.topMargin=dp(24);
   root.addView(actions,alp);
-  secondary=label("ЗАКРЫТЬ",12,muted);secondary.setPadding(dp(12),dp(12),dp(12),dp(12));
+  secondary=label("ЗАКРЫТЬ",12,muted);secondary.setTypeface(null,Typeface.BOLD);secondary.setGravity(Gravity.CENTER);secondary.setPadding(dp(16),dp(14),dp(16),dp(14));
   secondary.setOnClickListener(v->dialog.dismiss());actions.addView(secondary);
   primary=label("ОБНОВИТЬ",12,Color.BLACK);primary.setTypeface(null,Typeface.BOLD);
-  primary.setPadding(dp(14),dp(12),dp(14),dp(12));primary.setBackground(bg(tint,0));
-  LinearLayout.LayoutParams blp=new LinearLayout.LayoutParams(-2,-2);blp.leftMargin=dp(9);
+  primary.setGravity(Gravity.CENTER);primary.setPadding(dp(16),dp(13),dp(16),dp(13));primary.setBackground(bg(tint,0,13));
+  LinearLayout.LayoutParams blp=new LinearLayout.LayoutParams(-2,-2);blp.leftMargin=dp(8);
   actions.addView(primary,blp);primary.setVisibility(View.GONE);
   // Keep the progress, notes and actions in one custom, theme-aware dialog.
   dialog.setContentView(root);
@@ -104,8 +105,8 @@ public final class MediaOtaDialog {
   Window w=dialog.getWindow();if(w==null)return;
   w.setBackgroundDrawableResource(android.R.color.transparent);
   w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-  WindowManager.LayoutParams p=w.getAttributes();p.dimAmount=.6f;
-  p.width=Math.min(activity.getResources().getDisplayMetrics().widthPixels-dp(30),dp(460));
+  WindowManager.LayoutParams p=w.getAttributes();p.dimAmount=.64f;p.gravity=Gravity.CENTER;
+  p.width=Math.min(activity.getResources().getDisplayMetrics().widthPixels-dp(30),dp(450));
   p.height=-2;w.setAttributes(p);
  }
  public boolean isShowing(){return dialog.isShowing();}
