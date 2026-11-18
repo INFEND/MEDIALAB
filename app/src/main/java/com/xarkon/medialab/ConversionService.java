@@ -330,6 +330,15 @@ public final class ConversionService extends Service {
                                 saved++;
                                 markFile((keptOriginal?"Сохранён без повторного сжатия: ":"Сохранён: ") + src.name, 100);
                             } else {
+                                long actualSampleMs=smartVideo?ConvertEngine.info(output).durationMs:length;
+                                if(actualSampleMs<=0)actualSampleMs=length;
+                                sampledMs += actualSampleMs;
+                                sampledBytes += output.length();
+                                state.earlySampleBytes=sampledBytes;
+                                state.earlySampleDurationMs=sampledMs;
+                                state.earlySampleCount++;
+                                markFile("Предпросмотр: участок " + (p+1) + "/" + positions.size(),
+                                        8 + 83 * (p + 1) / Math.max(1, positions.size()));
                                 previews.add(output);
                                 output = null;
                                 sampledMs = info.durationMs;
@@ -337,7 +346,9 @@ public final class ConversionService extends Service {
                         } finally { if (output != null && !output.equals(input)) output.delete(); }
                     } else {
                         final long clipMs = 5000;
-                        List<Long> positions = ConvertEngine.previewStarts(info.durationMs, clipMs);
+                        boolean smartVideo=itemCfg.mode==ConvertEngine.VIDEO&&itemCfg.quality==SmartCompression.QUALITY;
+                        List<Long> positions = smartVideo?AscVideoOptions.sampleStarts(info.durationMs,clipMs):ConvertEngine.previewStarts(info.durationMs,clipMs);
+                        final String previewKey=sourceKey!=null?sourceKey:(smartVideo?"preview:"+java.util.UUID.randomUUID():null);
                         if(info.durationMs<=0)throw new java.io.IOException("Не удалось определить длительность для центрального фрагмента");
                         segmentsCount = positions.size();
                         state.earlySampleTotal=positions.size();
@@ -354,23 +365,14 @@ public final class ConversionService extends Service {
                             try {
                                 if(itemCfg.quality==SmartCompression.QUALITY){
                                     output.delete();output=null;
-                                    SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,start,length,true,sourceKey,cancellation::get,SmartCompression.reporting((msg,percent)->markFile(msg,percent)));
+                                    SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,start,length,true,previewKey,cancellation::get,SmartCompression.reporting((msg,percent)->markFile(msg,percent)));
                                     output=result.file;
-                                    if(!result.verified||result.original||output.equals(input))throw new java.io.IOException("ASC PRO: результат не прошёл контроль качества");
+                                    if(!result.verified||result.original||output.equals(input))throw new java.io.IOException("ASC PRO: не получен корректно перекодированный образец");
                                 }else{
                                     FFmpegSession session = ConvertEngine.convert(input, output, itemCfg, info, start, length);
                                     validate(session, output);
                                 }
                                 if (cancellation.get()) break;
-                                sampledMs += length;
-                                sampledBytes += output.length();
-                                // Publish a measured estimate after each converted segment.
-                                // Do not wait for the expensive synchronized side-by-side composite.
-                                state.earlySampleBytes=sampledBytes;
-                                state.earlySampleDurationMs=sampledMs;
-                                state.earlySampleCount=p+1;
-                                markFile("Предпросмотр: участок " + (p+1) + "/" + positions.size(),
-                                        8 + 83 * (p + 1) / Math.max(1, positions.size()));
                                 // A second preview-only stream is paired with the ORIGINAL
                                 // at exactly this timestamp. The existing converted clip
                                 // remains the source for the size estimate.
