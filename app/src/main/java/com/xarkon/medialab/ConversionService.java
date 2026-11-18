@@ -308,7 +308,7 @@ public final class ConversionService extends Service {
                             boolean keptOriginal=false;
                             if(itemCfg.quality==SmartCompression.QUALITY){
                                 output.delete(); output=null;
-                                SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,!exporting,sourceKey,cancellation::get,msg->markFile(msg,0));
+                                SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,!exporting,sourceKey,cancellation::get,SmartCompression.reporting((msg,percent)->markFile(msg,percent)));
                                 output=result.file;actualFormat=result.format;keptOriginal=result.original;
                                 if(itemCfg.mode==ConvertEngine.VIDEO&&(keptOriginal||output.equals(input)||!result.verified||output.length()>=input.length()))
                                     throw new java.io.IOException("ASC PRO: видео не сжато. Исходный файл не изменён.");
@@ -354,7 +354,7 @@ public final class ConversionService extends Service {
                             try {
                                 if(itemCfg.quality==SmartCompression.QUALITY){
                                     output.delete();output=null;
-                                    SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,start,length,true,sourceKey,cancellation::get,msg->markFile(msg,0));
+                                    SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,start,length,true,sourceKey,cancellation::get,SmartCompression.reporting((msg,percent)->markFile(msg,percent)));
                                     output=result.file;
                                     if(!result.verified||result.original||output.equals(input))throw new java.io.IOException("ASC PRO: результат не прошёл контроль качества");
                                 }else{
@@ -537,7 +537,7 @@ public final class ConversionService extends Service {
             String format=itemCfg.format;boolean kept=false;
             batchProgress(index,0,"Конвертация → "+format.toUpperCase(java.util.Locale.ROOT)+": "+src.name);
             if(itemCfg.quality==SmartCompression.QUALITY){
-                SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,false,key,cancellation::get,msg->batchProgress(index,0,msg+" · "+src.name));
+                SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,false,key,cancellation::get,SmartCompression.reporting((msg,percent)->batchProgress(index,percent,msg+" · "+src.name)));
                 output=result.file;format=result.format;kept=result.original;
                 if(itemCfg.mode==ConvertEngine.VIDEO&&(kept||output.equals(input)||!result.verified||output.length()>=input.length()))
                     throw new java.io.IOException("ASC PRO: видео не сжато. Исходный файл не изменён.");
