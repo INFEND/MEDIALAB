@@ -17,7 +17,16 @@ import java.util.regex.*;
 /** ASC PRO: local, conservative quality-gated encoding. The original is never modified. */
 final class SmartCompression {
     static final int QUALITY = 101;
-    interface Status { void update(String message); }
+    interface Status {
+        void update(String message);
+        default void progress(String message,int percent){update(message);}
+    }
+    static Status reporting(java.util.function.BiConsumer<String,Integer> callback){
+        return new Status(){
+            public void update(String message){callback.accept(message,0);}
+            public void progress(String message,int percent){callback.accept(message,percent);}
+        };
+    }
     static final class Result {
         final File file; final String format; final boolean original; final boolean verified;
         Result(File f,String x,boolean o){this(f,x,o,true);}
@@ -27,6 +36,10 @@ final class SmartCompression {
     private static final class Diagnostics {
         int encodes, durationFailures, qualityFailures, nativeFailures, sizeFailures, fullAttempts;
         boolean fullAttempted, lastOversize;
+        long fullDurationMs;
+        Status status;
+        final Set<String> failedHardware=new HashSet<>();
+        final Set<String> triedFull=new HashSet<>();
         String last="";
         final LinkedHashSet<String> recent=new LinkedHashSet<>();
         void note(String msg){
@@ -58,7 +71,7 @@ final class SmartCompression {
                       long start,long length,boolean preview,String sourceKey,ConvertEngine.Canceled canceled,Status status) throws IOException {
         check(canceled);
         Result best=null;
-        Diagnostics diagnostics=new Diagnostics();
+        Diagnostics diagnostics=new Diagnostics();diagnostics.status=status;
         if(cfg.mode==ConvertEngine.IMAGE) best=image(ctx,in,cfg,canceled,status);
         else if(cfg.mode==ConvertEngine.VIDEO || cfg.mode==ConvertEngine.AUDIO || cfg.mode==ConvertEngine.EXTRACT)
             best=av(ctx,in,cfg,info,start,length,preview,sourceKey,canceled,status,diagnostics);
@@ -204,13 +217,53 @@ final class SmartCompression {
         Collections.addAll(args,tail);FFmpegSession s=FFmpegKit.executeWithArguments(args.toArray(new String[0]));
         check(c);return s!=null&&ReturnCode.isSuccess(s.getReturnCode())?s:null;
     }
-    private static FFmpegSession videoExec(ConvertEngine.Canceled c,Diagnostics d,String stage,String... tail)throws IOException{
+    private static FFmpegSession videoExec(ConvertEngine.Canceled c,Diagnostics d,String stage,long expectedMs,int from,int to,String... tail)throws IOException{
         check(c);
         ArrayList<String> args=new ArrayList<>(Arrays.asList("-hide_banner","-nostdin","-y"));
         Collections.addAll(args,tail);
-        FFmpegSession session=FFmpegKit.executeWithArguments(args.toArray(new String[0]));
+        // Per-session callbacks: a global callback cannot identify parallel exports.
+        java.util.concurrent.CountDownLatch done=new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicLong mediaMs=new java.util.concurrent.atomic.AtomicLong();
+        java.util.concurrent.atomic.AtomicLong lastAdvance=new java.util.concurrent.atomic.AtomicLong(android.os.SystemClock.elapsedRealtime());
+        FFmpegSession session=FFmpegKit.executeWithArgumentsAsync(args.toArray(new String[0]),
+                finished->done.countDown(),null,stat->{
+                    long time=Math.max(0L,(long)stat.getTime());
+                    long previous=mediaMs.getAndAccumulate(time,Math::max);
+                    if(time>previous)lastAdvance.set(android.os.SystemClock.elapsedRealtime());
+                });
+        if(session==null){d.nativeFailures++;d.note(stage+": нет сессии FFmpeg");return null;}
+        boolean hardware=(stage.startsWith("Кодек ")||stage.startsWith("Проба "))&&stage.contains("_mediacodec");
+        long started=android.os.SystemClock.elapsedRealtime();
+        long stallLimit=hardware?90_000L:300_000L;
+        boolean stalled=false;
+        try{
+            while(!done.await(1,java.util.concurrent.TimeUnit.SECONDS)){
+                long now=android.os.SystemClock.elapsedRealtime(),time=mediaMs.get();
+                if(c.canceled()||now-lastAdvance.get()>stallLimit){
+                    stalled=!c.canceled();
+                    FFmpegKit.cancel(session.getSessionId());
+                    if(d.status!=null)d.status.progress(stalled?"ASC PRO · остановка зависшей сессии: "+stage:"ASC PRO · отмена",from);
+                    if(!done.await(30,java.util.concurrent.TimeUnit.SECONDS))
+                        throw new IOException("ASC PRO: FFmpeg не подтвердил остановку сессии. Оригинал не изменён.");
+                    break;
+                }
+                double fraction=expectedMs>0?Math.min(.99,time/(double)expectedMs):0;
+                int percent=from+(int)((to-from)*fraction);
+                String position=expectedMs>0?clock(time)+" / "+clock(expectedMs):clock(time);
+                if(d.status!=null)d.status.progress("ASC PRO · "+stage+" · "+position+
+                        " · "+(now-started)/1000+" с"+(from>0?" · "+(int)(fraction*100)+"% этапа":""),percent);
+            }
+        }catch(InterruptedException e){
+            FFmpegKit.cancel(session.getSessionId());Thread.currentThread().interrupt();
+            throw new IOException("ASC PRO: обработка прервана",e);
+        }
         check(c);
-        if(session!=null&&ReturnCode.isSuccess(session.getReturnCode()))return session;
+        if(stalled){
+            d.nativeFailures++;d.note(stage+": нет продвижения кадров "+stallLimit/1000+" с; сессия отменена");
+            if(hardware)for(String codec:new String[]{"h264_mediacodec","hevc_mediacodec"})if(stage.contains(codec))d.failedHardware.add(codec);
+            return null;
+        }
+        if(ReturnCode.isSuccess(session.getReturnCode()))return session;
         d.nativeFailures++;
         String logs=session==null?"нет сессии":session.getAllLogsAsString();
         if(logs==null)logs="";
@@ -219,12 +272,17 @@ final class SmartCompression {
         d.note(stage+": "+(compact.isEmpty()?"FFmpeg завершился с ошибкой":compact));
         return null;
     }
+    private static String clock(long ms){
+        long sec=Math.max(0,ms)/1000;
+        return String.format(Locale.US,"%02d:%02d:%02d",sec/3600,(sec/60)%60,sec%60);
+    }
     private static void seek(List<String> a,long start){if(start>0)Collections.addAll(a,"-ss",sec(start));}
     private static String sec(long ms){return String.format(Locale.US,"%.3f",ms/1000.0);}
     private static void duration(List<String> a,long length){if(length>0)Collections.addAll(a,"-t",sec(length));}
     private static Result av(Context ctx,File in,ConvertEngine.Config cfg,ConvertEngine.MediaInfo inf,long start,long length,
                              boolean preview,String sourceKey,ConvertEngine.Canceled c,Status status,Diagnostics d)throws IOException{
         boolean video=cfg.mode==ConvertEngine.VIDEO;
+        d.fullDurationMs=inf.durationMs;
         // Preserve additional streams/cover art rather than silently discard them in audio compression.
         com.arthenica.ffmpegkit.MediaInformationSession probe=FFprobeKit.getMediaInformation(in.getAbsolutePath());
         check(c);
@@ -282,7 +340,7 @@ final class SmartCompression {
             long pixels=Math.max(1L,(long)inf.width*inf.height);
             long conservative=Math.min(6L*1024*1024*1024,Math.max(reserve,pixels*480L));
             if(available<conservative){d.note("Недостаточно свободного места для точной резервной выборки");return null;}
-            if(videoExec(c,d,"Точная выборка",args.toArray(new String[0]))==null||reference.length()<=0)return null;
+            if(videoExec(c,d,"Точная выборка",probeLength,0,0,args.toArray(new String[0]))==null||reference.length()<=0)return null;
             long actual=ConvertEngine.info(reference).durationMs;
             if(actual<=0||Math.abs(actual-probeLength)>Math.max(350,probeLength/100)){
                 d.durationFailures++;d.note("Точная выборка: "+actual+" мс вместо "+probeLength+" мс");return null;
@@ -295,10 +353,13 @@ final class SmartCompression {
             ConvertEngine.MediaInfo inf,boolean preview,String sourceKey,ConvertEngine.Canceled c,Status status,
             Diagnostics d,boolean video,String[] codecs,long bitrate,long probeStart,long probeLength)throws IOException{
         for(String codec:codecs){
+            if(d.failedHardware.contains(codec))continue;
             int[] steps=video?AscVideoOptions.steps(codec,cfg.performance):
                     "flac".equals(codec)?new int[]{5}:new int[]{192,320};
             for(int q:steps){
                 check(c);
+                if(d.failedHardware.contains(codec))break;
+                if(!preview&&d.triedFull.contains(codec+":"+q))continue;
                 Plan candidate=new Plan(codec,q,bitrate);
                 status.update("ASC PRO · проверка реального фрагмента "+codec);
                 d.encodes++;
@@ -323,7 +384,7 @@ final class SmartCompression {
                 if(full!=null)return full;
                 forget(sourceKey);
                 if(!video&&cfg.mode!=ConvertEngine.EXTRACT)return null;
-                if(video&&d.lastOversize)break; // higher-quality steps of this codec are unlikely to be smaller
+                if(video&&(d.lastOversize||d.failedHardware.contains(codec)))break; // higher-quality steps of this codec are unlikely to be smaller
             }
         }
         return null;
@@ -331,6 +392,7 @@ final class SmartCompression {
     private static Result encodeFull(Context ctx,File in,ConvertEngine.Config cfg,ConvertEngine.MediaInfo inf,
                                      Plan plan,boolean video,ConvertEngine.Canceled c,Status status,Diagnostics d)throws IOException{
         d.fullAttempts++;
+        d.triedFull.add(plan.codec+":"+plan.q);
         d.lastOversize=false;
         status.update("ASC PRO · основное кодирование "+plan.codec+" · попытка "+d.fullAttempts);
         Result full=encodeCandidate(ctx,in,cfg,plan.codec,plan.q,plan.bitrate,0,0,c,d);
@@ -378,7 +440,7 @@ final class SmartCompression {
             if(length==0&&cfg.mode!=ConvertEngine.EXTRACT&&in.length()>0&&in.length()<Long.MAX_VALUE-1048576L)
                 Collections.addAll(a,"-fs",String.valueOf(in.length()+1048576L)); // stop a clearly oversized encode early
             Collections.addAll(a,"-threads",n,"-map_metadata","0",out.getAbsolutePath());
-            if(videoExec(c,d,"Кодек "+codec+" / "+q,a.toArray(new String[0]))==null||out.length()<=0)return null;
+            if(videoExec(c,d,(length==0?"Кодек ":"Проба ")+codec+" / "+q+(length==0?" · попытка "+d.fullAttempts:""),length>0?length:d.fullDurationMs,length==0?8:0,length==0?75:0,a.toArray(new String[0]))==null||out.length()<=0)return null;
             Result result=new Result(out,fmt,false);out=null;return result;
         }finally{if(out!=null)out.delete();}
     }
@@ -392,7 +454,7 @@ final class SmartCompression {
             ArrayList<String> a=new ArrayList<>(Arrays.asList("-filter_complex_threads",n,"-threads",n));seek(a,start);Collections.addAll(a,"-i",in.getAbsolutePath(),"-threads",n,"-i",out.getAbsolutePath());
             Collections.addAll(a,"-filter_complex","[0:v:0]settb=AVTB,setpts=PTS-STARTPTS[x];[1:v:0]settb=AVTB,setpts=PTS-STARTPTS[y];[x][y]ssim=shortest=1:repeatlast=0:ts_sync_mode=nearest:stats_file="+stats.getAbsolutePath()+"[quality]",
                     "-map","[quality]","-an");duration(a,length);Collections.addAll(a,"-fps_mode:v","passthrough","-f","null","-");
-            if(videoExec(c,d,"Фильтр SSIM",a.toArray(new String[0]))==null || !stats.isFile())return false;
+            if(videoExec(c,d,"Контроль качества SSIM",length>0?length:d.fullDurationMs,length==0?75:0,length==0?85:0,a.toArray(new String[0]))==null || !stats.isFile())return false;
             Pattern p=Pattern.compile("Y:([0-9.]+).*?All:([0-9.]+)");double sum=0,minY=1,minAll=1;long count=0;
             try(BufferedReader r=new BufferedReader(new FileReader(stats))){
                 String line;while((line=r.readLine())!=null){check(c);Matcher m=p.matcher(line);
