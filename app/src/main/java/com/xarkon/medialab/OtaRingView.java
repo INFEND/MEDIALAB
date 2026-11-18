@@ -50,14 +50,14 @@ public final class OtaRingView extends View {
     @Override protected void onDraw(Canvas canvas){
         super.onDraw(canvas);
         float density=getResources().getDisplayMetrics().density;
-        float width=4f*density;
+        float width=3.1f*density;
         float cx=getWidth()/2f,cy=getHeight()/2f;
-        float radius=Math.max(0f,Math.min(cx,cy)-width);
+        float radius=Math.max(0f,Math.min(cx,cy)-width*1.5f);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);paint.setStrokeWidth(width);
-        paint.setColor((accent&0x00ffffff)|0x33000000);
+        paint.setColor((accent&0x00ffffff)|0x38000000);
         canvas.drawCircle(cx,cy,radius,paint);
         paint.setColor(accent);
-        canvas.drawArc(cx-radius,cy-radius,cx+radius,cy+radius,-90+rotation,checking?88f:360f*progress,false,paint);
+        canvas.drawArc(cx-radius,cy-radius,cx+radius,cy+radius,-90+rotation,checking?270f:360f*progress,false,paint);
     }
 }
