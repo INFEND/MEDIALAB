@@ -185,16 +185,31 @@ public final class OtaUpdater {
     }
     private static java.lang.ref.WeakReference<Activity> owner=new java.lang.ref.WeakReference<>(null);
     private static java.lang.ref.WeakReference<MediaOtaDialog> active=new java.lang.ref.WeakReference<>(null);
+    private static boolean busy;
+    private static String sessionNotes="";
+    private static java.util.function.Consumer<MediaOtaDialog> snapshot;
+    private static void publish(java.util.function.Consumer<MediaOtaDialog> state){
+        snapshot=state;
+        Activity a=owner.get(); MediaOtaDialog ui=active.get();
+        if(a!=null&&!a.isFinishing()&&!a.isDestroyed()&&ui!=null)state.accept(ui);
+    }
+    private static void finish(java.util.function.Consumer<MediaOtaDialog> state){busy=false;publish(state);}
+    private static void withOwner(java.util.function.BiConsumer<Activity,MediaOtaDialog> action){
+        Activity a=owner.get(); MediaOtaDialog ui=active.get();
+        if(a!=null&&!a.isFinishing()&&!a.isDestroyed()&&ui!=null)action.accept(a,ui);
+    }
     public static void checkAndOffer(Activity a,int accent){
         if(a.isFinishing()||a.isDestroyed())return;
         MediaOtaDialog existing=active.get();
         if(owner.get()==a && existing!=null){existing.show();return;}
         MediaOtaDialog ui=new MediaOtaDialog(a,accent);
         owner=new java.lang.ref.WeakReference<>(a);active=new java.lang.ref.WeakReference<>(ui);
-        ui.show();check(a,accent,ui);
+        ui.show();
+        if(busy&&snapshot!=null){ui.setHistory(sessionNotes);snapshot.accept(ui);return;}
+        check(a,accent,ui);
     }
     private static void check(Activity a,int accent,MediaOtaDialog ui){
-        ui.stage("Проверка соединения…","Подключение к серверу…");
+        sessionNotes="";busy=true;publish(d->d.stage("Проверка соединения…","Подключение к серверу…"));
         worker.execute(()->{
             try{
                 URLConnection conn=connection(MANIFEST);
@@ -209,19 +224,17 @@ public final class OtaUpdater {
                 Release release=new Release(new JSONObject(data.toString("UTF-8")));
                 long installed=a.getPackageManager().getPackageInfo(a.getPackageName(),0).getLongVersionCode();
                 main.post(()->{
-                    if(a.isFinishing()||a.isDestroyed())return;
-                    if(release.code<=installed){active.clear();ui.current("MediaLAB "+BuildConfig.VERSION_NAME);}
-                    else ui.offer(release.name,changelog(release,installed),()->download(a,release,ui));
+                    if(release.code<=installed){finish(d->d.current("MediaLAB "+BuildConfig.VERSION_NAME));}
+                    else {sessionNotes=changelog(release,installed);finish(d->d.offer(release.name,sessionNotes,()->withOwner((host,dialog)->download(host,release,dialog))));}
                 });
             }catch(Exception e){
                 String message=e.getMessage()==null?"Ошибка подключения":e.getMessage();
-                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
-                    ui.fail(message,()->check(a,accent,ui));});
+                main.post(()->finish(d->d.fail(message,()->withOwner((host,dialog)->check(host,accent,dialog)))));
             }
         });
     }
     private static void download(Activity a,Release release,MediaOtaDialog ui){
-        ui.stage("Подготовка загрузки…","MediaLAB "+release.name);
+        busy=true;publish(d->d.stage("Подготовка загрузки…","MediaLAB "+release.name));
         worker.execute(()->{
             File target=file(a),temp=new File(target.getParentFile(),"MediaLAB-candidate-"+release.sha+".apk");
             try{
@@ -229,20 +242,17 @@ public final class OtaUpdater {
                     throw new IOException("Не удалось создать папку OTA");
                 // Reuse a completed download after reopening the updater or recreating the Activity.
                 if(target.isFile() && target.length()==release.size){
-                    main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
-                        ui.stage("Проверка APK…","Проверяем ранее загруженное обновление");});
+                    main.post(()->publish(d->d.stage("Проверка APK…","Проверяем ранее загруженное обновление")));
                     if(release.sha.equals(hash(target))){
                         PackageInfo cached=a.getPackageManager().getPackageArchiveInfo(target.getAbsolutePath(),0);
                         if(cached!=null && cached.getLongVersionCode()==release.code){
                             checkSigner(a,target);
-                            main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
-                                ui.ready(release.name,()->verifyAndInstall(a,release,ui));});
+                            main.post(()->finish(d->d.ready(release.name,()->withOwner((host,dialog)->verifyAndInstall(host,release,dialog)))));
                             return;
                         }
                     }
                     // Reset VERIFY before reporting progress from a fresh transfer.
-                    main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
-                        ui.stage("Подготовка загрузки…","MediaLAB "+release.name);});
+                    main.post(()->publish(d->d.stage("Подготовка загрузки…","MediaLAB "+release.name)));
                 }
                 // Partial files are bound to the exact manifest digest, never reused across releases.
                 File[] stale=target.getParentFile().listFiles();
@@ -264,7 +274,7 @@ public final class OtaUpdater {
                             }
                         }else got=0; // Server ignored Range: restart safely.
                         final long initial=got;
-                        main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())ui.downloading(initial,release.size);});
+                        main.post(()->publish(d->d.downloading(initial,release.size)));
                         long lastUi=0;int lastPercent=-1;
                         try(InputStream in=conn.getInputStream();OutputStream out=new FileOutputStream(temp,got>0)){
                             byte[] b=new byte[65536];int n;
@@ -275,7 +285,7 @@ public final class OtaUpdater {
                                 long now=android.os.SystemClock.uptimeMillis();
                                 if(pct==100||(pct!=lastPercent&&now-lastUi>=120)){
                                     lastUi=now;lastPercent=pct;long received=got;
-                                    main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())ui.downloading(received,release.size);});
+                                    main.post(()->publish(d->d.downloading(received,release.size)));
                                 }
                             }
                         }
@@ -286,33 +296,30 @@ public final class OtaUpdater {
                     temp.delete();
                     throw new IOException("SHA-256 APK не совпадает");
                 }
-                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())ui.stage("Проверка подписи APK…","Сверяем сертификат");});
+                main.post(()->publish(d->d.stage("Проверка подписи APK…","Сверяем сертификат")));
                 PackageInfo archive=a.getPackageManager().getPackageArchiveInfo(temp.getAbsolutePath(),0);
                 if(archive==null||archive.getLongVersionCode()!=release.code){
                     temp.delete();throw new IOException("Версия APK не совпадает с манифестом");
                 }
                 try{checkSigner(a,temp);}catch(Exception invalid){temp.delete();throw invalid;}
                 java.nio.file.Files.move(temp.toPath(),target.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING,java.nio.file.StandardCopyOption.ATOMIC_MOVE);
-                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
-                    ui.ready(release.name,()->verifyAndInstall(a,release,ui));});
+                main.post(()->finish(d->d.ready(release.name,()->withOwner((host,dialog)->verifyAndInstall(host,release,dialog)))));
             }catch(Exception e){
                 String message=e.getMessage()==null?"Ошибка загрузки":e.getMessage();
-                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
-                    ui.fail(message,()->download(a,release,ui));});
+                main.post(()->finish(d->d.fail(message,()->withOwner((host,dialog)->download(host,release,dialog)))));
             }
         });
     }
     private static void verifyAndInstall(Activity a,Release release,MediaOtaDialog ui){
-        ui.stage("Проверка APK…","Сверяем SHA-256 перед установкой");
+        busy=true;publish(d->d.stage("Проверка APK…","Сверяем SHA-256 перед установкой"));
         worker.execute(()->{
             try{
                 File apk=file(a);
                 if(!apk.isFile()||apk.length()!=release.size||!release.sha.equals(hash(apk)))
                     throw new IOException("APK изменён или повреждён. Загрузите обновление повторно.");
-                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())install(a,release,ui);});
+                main.post(()->{finish(d->d.ready(release.name,()->withOwner((host,dialog)->verifyAndInstall(host,release,dialog))));withOwner((host,dialog)->install(host,release,dialog));});
             }catch(Exception e){
-                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
-                    ui.fail(e.getMessage()==null?"Ошибка проверки APK":e.getMessage(),()->download(a,release,ui));});
+                main.post(()->finish(d->d.fail(e.getMessage()==null?"Ошибка проверки APK":e.getMessage(),()->withOwner((host,dialog)->download(host,release,dialog)))));
             }
         });
     }
