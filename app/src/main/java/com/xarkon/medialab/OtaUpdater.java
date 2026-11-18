@@ -222,6 +222,23 @@ public final class OtaUpdater {
             try{
                 if(!target.getParentFile().exists()&&!target.getParentFile().mkdirs())
                     throw new IOException("Не удалось создать папку OTA");
+                // Reuse a completed download after reopening the updater or recreating the Activity.
+                if(target.isFile() && target.length()==release.size){
+                    main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
+                        ui.stage("Проверка APK…","Проверяем ранее загруженное обновление");});
+                    if(release.sha.equals(hash(target))){
+                        PackageInfo cached=a.getPackageManager().getPackageArchiveInfo(target.getAbsolutePath(),0);
+                        if(cached!=null && cached.getLongVersionCode()==release.code){
+                            checkSigner(a,target);
+                            main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
+                                ui.ready(release.name,()->verifyAndInstall(a,release,ui));});
+                            return;
+                        }
+                    }
+                    // Reset VERIFY before reporting progress from a fresh transfer.
+                    main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
+                        ui.stage("Подготовка загрузки…","MediaLAB "+release.name);});
+                }
                 if(target.getParentFile().getUsableSpace()<release.size+4L*1024*1024)
                     throw new IOException("Недостаточно места для обновления");
                 URLConnection conn=connection(release.url);
