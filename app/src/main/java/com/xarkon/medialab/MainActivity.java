@@ -1113,7 +1113,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout footer = vertical();
         footer.addView(txt("LOCAL FIRST  •  БЕЗ ЗАГРУЗКИ НА СЕРВЕР  •  ARM64", 10, SECONDARY, true), boxLp(-1, -2, 8));
-        footer.addView(txt("Предпросмотр использует один реальный центральный фрагмент (до 5 секунд). Размер всего файла приблизителен. ASC PRO проверяет качество при экспорте.", 11, SECONDARY, false));
+        footer.addView(txt("Предпросмотр использует до пяти реальных фрагментов по 5 секунд. Размер всего файла приблизителен.", 11, SECONDARY, false));
         root.addView(footer, boxLp(-1, -2, 0));
         updateButtons();
     }
@@ -1527,7 +1527,7 @@ public final class MainActivity extends Activity {
             } else if(queue.size()>1) {bytes=fastEstimatedBytes;tag="Оценка всей очереди";
             } else if (previewDurationMs>0 && previewSampledMs>0) {
                 bytes=(long)(sampleSize*Math.max(1.0,previewDurationMs/(double)previewSampledMs));
-                tag="Оценка по реальному центральному фрагменту";
+                tag="Оценка по реальным фрагментам";
                 if(mode==ConvertEngine.VIDEO && previewSettings.quality==SmartCompression.QUALITY && original>0 && bytes>original){
                     bytes=original;tag="ASC PRO · верхняя граница (исходный объём)";
                 }
@@ -1563,7 +1563,7 @@ public final class MainActivity extends Activity {
         estimateBox.addView(txt(changedFormat?"ASC PRO · ОЦЕНКА ПО ОБРАЗЦУ":smart?"ASC PRO · ВЕРХНЯЯ ГРАНИЦА РАЗМЕРА":"БЫСТРЫЙ ПРОГНОЗ · БЕЗ ПЕРЕКОДИРОВАНИЯ",10,SECONDARY,true),boxLp(-1,-2,5));
         estimateAmountLabel=txt(changedFormat?"После проверки образца":fastEstimatedBytes>0?(smart?"≤ ":"≈ ")+ConvertEngine.humanBytes(fastEstimatedBytes):"Определяем параметры…",21,BLUE,true);
         estimateBox.addView(estimateAmountLabel,boxLp(-1,-2,5));
-        estimateBox.addView(txt(changedFormat?"При смене формата размер может увеличиться.":smart?"До проверки образца точная экономия неизвестна.":"Предварительно по параметрам. Прогноз уточнится по центральному фрагменту.",11,SECONDARY,false));
+        estimateBox.addView(txt(changedFormat?"При смене формата размер может увеличиться.":smart?"До проверки образца точная экономия неизвестна.":"Предварительно по параметрам. Прогноз уточнится по нескольким фрагментам.",11,SECONDARY,false));
         updateEstimateAnimation();
     }
     private void updateEstimateAnimation() {
@@ -1678,7 +1678,7 @@ public final class MainActivity extends Activity {
         player.setOnPreparedListener(mp -> {
             if (player != activeVideo) return;
             long duration = Math.max(0, mp.getDuration());
-            final List<Long> positions = savedQuality[ConvertEngine.VIDEO]==SmartCompression.QUALITY?AscVideoOptions.sampleStarts(duration,5000):ConvertEngine.previewStarts(duration, 5000);
+            final List<Long> positions = ConvertEngine.previewStarts(duration, 5000);
             final int[] next = {0};
             final Runnable[] advance = new Runnable[1];
             advance[0] = () -> {
@@ -1927,6 +1927,7 @@ public final class MainActivity extends Activity {
         executor.shutdownNow(); thumbnailWorker.shutdownNow();
         if (audioPlayer != null) { try { audioPlayer.release(); } catch (Exception ignored) { } }
         // Background service owns temporary media and conversion; do not cancel it here.
+        OtaUpdater.detach(this);
         super.onDestroy();
     }
 }
