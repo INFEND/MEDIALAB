@@ -185,6 +185,7 @@ public final class OtaUpdater {
         check(a,accent,ui);
     }
     private static void check(Activity a,int accent,MediaOtaDialog ui){
+        if(busy)return;
         sessionNotes="";busy=true;publish(d->{d.setHistory("");d.stage("Проверка соединения…","Подключение к серверу…");});
         worker.execute(()->{
             try{
@@ -296,7 +297,7 @@ public final class OtaUpdater {
                 File apk=file(a);
                 if(!apk.isFile()||apk.length()!=release.size||!release.sha.equals(hash(apk)))
                     throw new IOException("APK изменён или повреждён. Загрузите обновление повторно.");
-                main.post(()->{finish(d->d.ready(release.name,()->withOwner((host,dialog)->verifyAndInstall(host,release,dialog))));withOwner((host,dialog)->install(host,release,dialog));});
+                main.post(()->{finish(d->d.ready(release.name,()->withOwner((host,dialog)->verifyAndInstall(host,release,dialog))));withOwner((host,dialog)->{if(dialog.canLaunchInstaller())install(host,release,dialog);});});
             }catch(Exception e){
                 main.post(()->finish(d->d.fail(e.getMessage()==null?"Ошибка проверки APK":e.getMessage(),()->withOwner((host,dialog)->download(host,release,dialog)))));
             }
