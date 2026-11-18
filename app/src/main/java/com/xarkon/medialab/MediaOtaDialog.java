@@ -133,14 +133,14 @@ public final class MediaOtaDialog {
   progress.setProgress(0);ring.setProgressFraction(0f);
  }
  public void setHistory(String changes){
-  notes.setText(formatNotes(changes));history.setVisibility(changes==null||changes.trim().isEmpty()?View.GONE:View.VISIBLE);history.scrollTo(0,0);
+  notes.setText(formatNotes(changes,themeMode==2));history.setVisibility(changes==null||changes.trim().isEmpty()?View.GONE:View.VISIBLE);history.scrollTo(0,0);
  }
  public void offer(String version,String changes,Runnable action){
   state=State.OFFER;
   title.setText("Доступно обновление");stageLabel.setText("MediaLAB "+version);detail.setText("Новая версия готова к загрузке");
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   displayedProgress=0;receivedBytes=0L;expectedBytes=-1L;displayedBytes=0L;
-  ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
+  ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(1f);
   setHistory(changes);
   primary.setText("ОБНОВИТЬ");primary.setVisibility(View.VISIBLE);
   primary.setOnClickListener(v->action.run());secondary.setText("ПОЗЖЕ");
@@ -215,7 +215,7 @@ public final class MediaOtaDialog {
   primary.setText("ПОВТОРИТЬ");primary.setVisibility(retry==null?View.GONE:View.VISIBLE);
   primary.setOnClickListener(v->{if(retry!=null)retry.run();});
  }
- private static CharSequence formatNotes(String input){
+ private static CharSequence formatNotes(String input,boolean light){
   android.text.SpannableStringBuilder result=new android.text.SpannableStringBuilder();
   if(input==null)return result;
   for(String line:input.split("\\n",-1)){
@@ -232,7 +232,7 @@ public final class MediaOtaDialog {
    }
    result.append(line.substring(cursor));
    String shown=result.subSequence(start,result.length()).toString();
-   int tint=shown.startsWith("[+]")?0xff4dd69c:shown.startsWith("[-]")?0xfff07878:shown.startsWith("[=]")?0xffffaa4d:0;
+   int tint=shown.startsWith("[+]")?(light?0xff087443:0xff4dd69c):shown.startsWith("[-]")?(light?0xffb52d36:0xfff07878):shown.startsWith("[=]")?(light?0xff995300:0xffffaa4d):0;
    if(tint!=0){
     result.setSpan(new android.text.style.ForegroundColorSpan(tint),start,start+3,33);
     result.setSpan(new android.text.style.StyleSpan(Typeface.BOLD),start,start+3,33);
