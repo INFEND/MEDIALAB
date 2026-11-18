@@ -88,7 +88,11 @@ public final class MediaOtaDialog {
   LinearLayout.LayoutParams blp=new LinearLayout.LayoutParams(-2,-2);blp.leftMargin=dp(8);
   actions.addView(primary,blp);primary.setVisibility(View.GONE);
   // Keep the progress, notes and actions in one custom, theme-aware dialog.
-  dialog.setContentView(root);
+  ScrollView viewport=new ScrollView(a);
+  viewport.setFillViewport(false);
+  viewport.setVerticalScrollBarEnabled(false);
+  viewport.addView(root,new ScrollView.LayoutParams(-1,-2));
+  dialog.setContentView(viewport);
   dialog.setOnDismissListener(ignored->{
    if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
    ring.setChecking(false);
@@ -108,6 +112,12 @@ public final class MediaOtaDialog {
   WindowManager.LayoutParams p=w.getAttributes();p.dimAmount=.64f;p.gravity=Gravity.CENTER;
   p.width=Math.min(activity.getResources().getDisplayMetrics().widthPixels-dp(30),dp(450));
   p.height=-2;w.setAttributes(p);
+  // Keep actions reachable on short screens and at large font scales.
+  final int maxHeight=Math.max(dp(120),activity.getResources().getDisplayMetrics().heightPixels-dp(96));
+  View content=w.findViewById(android.R.id.content);
+  if(content!=null)content.post(()->{
+   if(dialog.isShowing()&&content.getHeight()>maxHeight)w.setLayout(p.width,maxHeight);
+  });
  }
  public boolean isShowing(){return dialog.isShowing();}
  public void stage(String message,String hint){
@@ -216,7 +226,7 @@ public final class MediaOtaDialog {
    }
    result.append(line.substring(cursor));
    String shown=result.subSequence(start,result.length()).toString();
-   int tint=line.startsWith("[+]")?0xff4dd69c:line.startsWith("[-]")?0xfff07878:line.startsWith("[=]")?0xffffaa4d:0;
+   int tint=shown.startsWith("[+]")?0xff4dd69c:shown.startsWith("[-]")?0xfff07878:shown.startsWith("[=]")?0xffffaa4d:0;
    if(tint!=0){
     result.setSpan(new android.text.style.ForegroundColorSpan(tint),start,start+3,33);
     result.setSpan(new android.text.style.StyleSpan(Typeface.BOLD),start,start+3,33);
