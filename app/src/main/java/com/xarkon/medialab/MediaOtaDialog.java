@@ -83,7 +83,7 @@ public final class MediaOtaDialog {
   root.addView(actions,alp);
   secondary=label("ЗАКРЫТЬ",12,muted);secondary.setTypeface(null,Typeface.BOLD);secondary.setGravity(Gravity.CENTER);secondary.setPadding(dp(16),dp(14),dp(16),dp(14));
   secondary.setOnClickListener(v->dialog.dismiss());actions.addView(secondary);
-  primary=label("ОБНОВИТЬ",12,Color.BLACK);primary.setTypeface(null,Typeface.BOLD);
+  primary=label("ОБНОВИТЬ",12,android.graphics.Color.luminance(tint)>.35?Color.BLACK:Color.WHITE);primary.setTypeface(null,Typeface.BOLD);
   primary.setGravity(Gravity.CENTER);primary.setPadding(dp(16),dp(13),dp(16),dp(13));primary.setBackground(bg(tint,0,13));
   LinearLayout.LayoutParams blp=new LinearLayout.LayoutParams(-2,-2);blp.leftMargin=dp(8);
   actions.addView(primary,blp);primary.setVisibility(View.GONE);
@@ -122,10 +122,12 @@ public final class MediaOtaDialog {
  public boolean matchesAppearance(int tint,int mode){return accent==tint&&themeMode==mode;}
  public void dismiss(){dialog.dismiss();}
  public boolean isShowing(){return dialog.isShowing();}
+ public boolean canLaunchInstaller(){Window w=dialog.getWindow();return dialog.isShowing()&&w!=null&&w.getDecorView().hasWindowFocus();}
  public boolean needsRefresh(){return state==State.CURRENT||state==State.ERROR;}
  public void stage(String message,String hint){
   state=(message.toLowerCase(new Locale("ru")).contains("провер") && (message.toLowerCase(new Locale("ru")).contains("apk") || message.toLowerCase(new Locale("ru")).contains("подпис") || message.toLowerCase(new Locale("ru")).contains("sha"))) ? State.VERIFY : State.CHECK;
   title.setText("Обновление MediaLAB");stageLabel.setText(message);detail.setText(hint);ring.setChecking(dialog.isShowing());
+  if(state==State.VERIFY){bytes.setContentDescription("Проверка целостности обновления");}else bytes.setContentDescription(null);
   receivedBytes=0L;expectedBytes=-1L;displayedBytes=0L;
   progress.setIndeterminate(true);secondary.setText("СКРЫТЬ");
   primary.setVisibility(View.GONE);bytes.setText("");percent.setText("");
