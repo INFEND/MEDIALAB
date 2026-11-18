@@ -15,6 +15,16 @@ public final class TestAscVideoOptions {
             AscVideoOptions.append(opts,codec,AscVideoOptions.steps(codec,3)[0],10_000_000,3);
             if(opts.contains("-preset")||opts.contains("-x265-params"))throw new AssertionError(opts);
         }
+        if(!AscVideoOptions.sampleStarts(100000,5000).equals(Arrays.asList(12500L,27500L,47500L,67500L,77500L)))throw new AssertionError("sample positions");
+        for(long duration:new long[]{1000,5000,9999,10000,20000,25000,49999,50000,100000}){
+            long previous=-5000;
+            for(long start:AscVideoOptions.sampleStarts(duration,5000)){
+                if(start<0||start>Math.max(0,duration-5000)||start<previous+5000)throw new AssertionError("overlap "+duration);
+                previous=start;
+            }
+        }
+        if(AscVideoOptions.estimateBytes(5000000,25000,100000)!=20000000L)throw new AssertionError("weighted estimate");
+        if(AscVideoOptions.estimateBytes(0,25000,100000)!=-1)throw new AssertionError("empty estimate");
         if(args.length>0){
             ArrayList<String> opts=new ArrayList<>();
             AscVideoOptions.append(opts,args[0],4,10_000_000,3);
