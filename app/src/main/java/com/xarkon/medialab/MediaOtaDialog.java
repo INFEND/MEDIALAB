@@ -93,13 +93,15 @@ public final class MediaOtaDialog {
   viewport.setVerticalScrollBarEnabled(false);
   viewport.addView(root,new ScrollView.LayoutParams(-1,-2));
   dialog.setContentView(viewport);
+  primary.setMinHeight(dp(48));secondary.setMinHeight(dp(48));
+  primary.setFocusable(true);secondary.setFocusable(true);
   dialog.setOnDismissListener(ignored->{
    if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
    ring.setChecking(false);
   });
  }
  public void show(){
-  if(dialog.isShowing())return;
+  if(dialog.isShowing()||activity.isFinishing()||activity.isDestroyed())return;
   dialog.show();
   ring.setChecking(state==State.CHECK||state==State.VERIFY||(state==State.DOWNLOAD&&expectedBytes<=0));
   if(state==State.DOWNLOAD&&expectedBytes>0){
