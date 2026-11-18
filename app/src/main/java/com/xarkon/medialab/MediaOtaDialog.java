@@ -111,7 +111,7 @@ public final class MediaOtaDialog {
  public boolean isShowing(){return dialog.isShowing();}
  public void stage(String message,String hint){
   state=(message.toLowerCase(new Locale("ru")).contains("провер") && (message.toLowerCase(new Locale("ru")).contains("apk") || message.toLowerCase(new Locale("ru")).contains("подпис") || message.toLowerCase(new Locale("ru")).contains("sha"))) ? State.VERIFY : State.CHECK;
-  title.setText("Обновление MediaLAB");stageLabel.setText(message);detail.setText(hint);ring.setChecking(true);
+  title.setText("Обновление MediaLAB");stageLabel.setText(message);detail.setText(hint);ring.setChecking(dialog.isShowing());
   receivedBytes=0L;expectedBytes=-1L;displayedBytes=0L;
   progress.setIndeterminate(true);secondary.setText("СКРЫТЬ");
   primary.setVisibility(View.GONE);bytes.setText("");percent.setText("");
@@ -144,7 +144,7 @@ public final class MediaOtaDialog {
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   if(total<=0){
    displayedBytes=done;bytes.setText(String.format(new Locale("ru"),"%.1f МБ",done/1048576d));
-   percent.setText("");ring.setChecking(true);return;
+   percent.setText("");ring.setChecking(dialog.isShowing());return;
   }
   final long fromBytes=Math.min(displayedBytes,done);
   if(!dialog.isShowing()||!android.animation.ValueAnimator.areAnimatorsEnabled()){
@@ -204,15 +204,17 @@ public final class MediaOtaDialog {
   for(String line:input.split("\\n",-1)){
    if(result.length()>0)result.append("\n");
    int start=result.length();
-   String shown=line.replace("**","");
-   result.append(shown);
    java.util.regex.Matcher matcher=java.util.regex.Pattern.compile("\\*\\*(.+?)\\*\\*").matcher(line);
-   int removed=0;
+   int cursor=0;
    while(matcher.find()){
-    int begin=start+matcher.start()-removed;
-    result.setSpan(new android.text.style.StyleSpan(Typeface.BOLD),begin,begin+matcher.group(1).length(),33);
-    removed+=4;
+    result.append(line.substring(cursor,matcher.start()));
+    int begin=result.length();
+    result.append(matcher.group(1));
+    result.setSpan(new android.text.style.StyleSpan(Typeface.BOLD),begin,result.length(),33);
+    cursor=matcher.end();
    }
+   result.append(line.substring(cursor));
+   String shown=result.subSequence(start,result.length()).toString();
    int tint=line.startsWith("[+]")?0xff4dd69c:line.startsWith("[-]")?0xfff07878:line.startsWith("[=]")?0xffffaa4d:0;
    if(tint!=0){
     result.setSpan(new android.text.style.ForegroundColorSpan(tint),start,start+3,33);
