@@ -1008,7 +1008,7 @@ public final class MainActivity extends Activity {
             }
         });
         settings.addView(qualitySeek,boxLp(-1,dp(45),6));
-        settings.addView(txt(mode==ConvertEngine.IMAGE?"10 ручных уровней + ASC PRO · выбранный формат, исходное разрешение и контроль качества.":"10 ручных уровней + ASC PRO · автоформат, исходное разрешение, проверка качества.",11,SECONDARY,false),boxLp(-1,-2,12));
+        settings.addView(txt(mode==ConvertEngine.IMAGE?"10 ручных уровней + ASC PRO · выбранный формат, исходное разрешение и контроль качества.":mode==ConvertEngine.VIDEO?"10 ручных уровней + ASC PRO · автоформат, исходное разрешение, без сравнения качества.":"10 ручных уровней + ASC PRO · автоформат, исходное разрешение, проверка качества.",11,SECONDARY,false),boxLp(-1,-2,12));
         if (mode == ConvertEngine.VIDEO) {
             settings.addView(txt("Ограничение разрешения", 12, SECONDARY, true), boxLp(-1, -2, 6));
             resolutionSpinner = spinner(ConvertEngine.RESOLUTIONS, savedResolution[mode]);
@@ -1497,7 +1497,8 @@ public final class MainActivity extends Activity {
             return;
         }
         if (!previewParts.isEmpty() && previewSettings!=null) {
-            if(previewUnverified){
+            boolean smartVideo=mode==ConvertEngine.VIDEO&&previewSettings.quality==SmartCompression.QUALITY;
+            if(previewUnverified&&!smartVideo){
                 estimateBox.addView(txt("Качество фрагмента не подтверждено. Прогноз недоступен.",13,BLUE,true),boxLp(-1,-2,6));
                 return;
             }
@@ -1515,6 +1516,14 @@ public final class MainActivity extends Activity {
                     estimateBox.addView(txt("Выбранный файл после сжатия: "+ConvertEngine.humanBytes(sampleSize),
                             12,SECONDARY,false),boxLp(-1,-2,6));
                 }
+            } else if(smartVideo&&previewDurationMs>0&&previewSampledMs>0){
+                long selectedBytes=queue.get(selected).size;
+                long predicted=AscVideoOptions.estimateBytes(sampleSize,previewSampledMs,previewDurationMs);
+                if(selectedBytes>0)predicted=Math.min(predicted,selectedBytes);
+                bytes=queue.size()==1?predicted:original>0&&selectedBytes>0?original-selectedBytes+predicted:-1;
+                tag=(queue.size()==1?"Прогноз по ":"Прогноз выбранного + предел остальных · ")+previewParts.size()+" фрагмент(ам)";
+                if(previewUnverified)tag+=" · неполная выборка";
+                if(queue.size()>1)estimateBox.addView(txt("Выбранное видео: ≈ "+ConvertEngine.humanBytes(predicted),12,SECONDARY,false),boxLp(-1,-2,6));
             } else if(queue.size()>1) {bytes=fastEstimatedBytes;tag="Оценка всей очереди";
             } else if (previewDurationMs>0 && previewSampledMs>0) {
                 bytes=(long)(sampleSize*Math.max(1.0,previewDurationMs/(double)previewSampledMs));
@@ -1524,9 +1533,9 @@ public final class MainActivity extends Activity {
                 }
             } else {bytes=fastEstimatedBytes;tag="Предварительный прогноз";}
             estimateBox.addView(txt(tag,11,SECONDARY,true),boxLp(-1,-2,4));
-            estimateBox.addView(txt(ConvertEngine.humanBytes(bytes),23,GREEN,true),boxLp(-1,-2,5));
+            estimateBox.addView(txt((mode!=ConvertEngine.IMAGE?"≈ ":"")+ConvertEngine.humanBytes(bytes),23,GREEN,true),boxLp(-1,-2,5));
             if (original>0 && bytes>0)estimateBox.addView(txt(reduction(original,bytes),12,SECONDARY,false));
-            if (mode!=ConvertEngine.IMAGE)estimateBox.addView(txt("Значение приблизительное: размер всего файла может отличаться.",11,SECONDARY,false),boxLp(-1,-2,7));
+            if (mode!=ConvertEngine.IMAGE)estimateBox.addView(txt(smartVideo?"Переменный битрейт: итог зависит от всех сцен. При смене кодека прогноз изменится.":"Значение приблизительное: размер всего файла может отличаться.",11,SECONDARY,false),boxLp(-1,-2,7));
             return;
         }
         LinearLayout estimateCard=horizontal();
@@ -1562,8 +1571,9 @@ public final class MainActivity extends Activity {
         ConversionService.Snapshot state=ConversionService.state;
         boolean active=state.running && !state.exporting && !pendingAutoPreview &&
                 !queue.isEmpty() && queue.get(selected).uri.toString().equals(state.sourceKey);
-        if (active && state.previewUnverified) {
-            estimatePhaseLabel.setText("Проверяем качество фрагмента");
+        boolean smartVideo=mode==ConvertEngine.VIDEO&&savedQuality[mode]==SmartCompression.QUALITY;
+        if (active && state.previewUnverified && (!smartVideo||state.earlySampleCount==0)) {
+            estimatePhaseLabel.setText(smartVideo?"Подготавливаем следующий фрагмент":"Проверяем качество фрагмента");
             if(mode==ConvertEngine.VIDEO && savedQuality[mode]==SmartCompression.QUALITY){
                 long original=ConvertEngine.totalSourceBytes(queue);
                 estimateHintLabel.setText("Пока используем верхнюю границу размера");
@@ -1575,8 +1585,12 @@ public final class MainActivity extends Activity {
         } else if (active && state.earlySampleDurationMs > 0 && state.durationMs > 0 &&
                 state.earlySampleBytes > 0) {
             // First real encoded clip already gives useful new information.
-            long prediction=(long)(state.earlySampleBytes *
-                    (state.durationMs/(double)state.earlySampleDurationMs));
+            long prediction=AscVideoOptions.estimateBytes(state.earlySampleBytes,state.earlySampleDurationMs,state.durationMs);
+            if(smartVideo){
+                long sourceBytes=queue.get(selected).size;
+                if(sourceBytes>0)prediction=Math.min(prediction,sourceBytes);
+                if(queue.size()>1){long original=ConvertEngine.totalSourceBytes(queue);if(original>0&&sourceBytes>0)prediction=original-sourceBytes+prediction;}
+            }
             if (estimateAmountLabel != null) {
                 estimateAmountLabel.setText("≈ " + ConvertEngine.humanBytes(prediction));
                 estimateAmountLabel.setTextColor(GREEN);
@@ -1664,7 +1678,7 @@ public final class MainActivity extends Activity {
         player.setOnPreparedListener(mp -> {
             if (player != activeVideo) return;
             long duration = Math.max(0, mp.getDuration());
-            final List<Long> positions = ConvertEngine.previewStarts(duration, 5000);
+            final List<Long> positions = savedQuality[ConvertEngine.VIDEO]==SmartCompression.QUALITY?AscVideoOptions.sampleStarts(duration,5000):ConvertEngine.previewStarts(duration, 5000);
             final int[] next = {0};
             final Runnable[] advance = new Runnable[1];
             advance[0] = () -> {
