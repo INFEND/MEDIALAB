@@ -207,7 +207,7 @@ public final class ConversionService extends Service {
         Uri outputTree=outputValue==null?null:Uri.parse(outputValue);
         boolean originalNames=request.getBooleanExtra("originalNames",false);
         boolean replace=request.getBooleanExtra("replaceOriginals",false)&&cfg.mode!=ConvertEngine.EXTRACT;
-        int requestedWorkers=Math.max(1,Math.min(4,request.getIntExtra("parallelWorkers",1)));
+        int requestedWorkers=Math.max(1,Math.min(ConvertEngine.maxParallelWorkers(),request.getIntExtra("parallelWorkers",1)));
         boolean fullPreview=true;
         state.fullPreview=fullPreview;
         if(cfg.performance==3)try{android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_MORE_FAVORABLE);}catch(Exception ignored){}
@@ -250,8 +250,7 @@ public final class ConversionService extends Service {
                 FFmpegKitConfig.enableStatisticsCallback(null); // session-global callback cannot attribute concurrent jobs
                 if(!replace&&outputTree!=null&&!OutputPolicy.hasWrite(this,outputTree))
                     throw new java.io.IOException("Нет доступа к выбранной папке сохранения. Выберите её заново");
-                int max=(cfg.mode==ConvertEngine.VIDEO||cfg.mode==ConvertEngine.EXTRACT||cfg.quality==SmartCompression.QUALITY)?2:4;
-                int workers=Math.min(files.size(),Math.min(requestedWorkers,max));
+                int workers=Math.min(files.size(),ConvertEngine.safeParallelWorkers(requestedWorkers,cfg));
                 BatchResult batch=exportBatch(files,cfg,outputTree,originalNames,replace,workers);
                 saved=batch.saved;failed=batch.failed;firstFileError=batch.firstError;warnings=batch.warnings;firstWarning=batch.firstWarning;
             }else for (int n = 0; n < files.size() && !cancellation.get(); n++) {
@@ -304,12 +303,12 @@ public final class ConversionService extends Service {
                         activeClipMs = info.durationMs;
                         File output = ConvertEngine.outputTemp(this, itemCfg.format);
                         try {
-                            markFile("Конвертация " + (n+1) + "/" + files.size() + ": " + src.name, 8);
+                            markFile("Конвертация " + (n+1) + "/" + files.size() + ": " + src.name, 0);
                             String actualFormat=itemCfg.format;
                             boolean keptOriginal=false;
                             if(itemCfg.quality==SmartCompression.QUALITY){
                                 output.delete(); output=null;
-                                SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,!exporting,sourceKey,cancellation::get,msg->markFile(msg,10));
+                                SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,!exporting,sourceKey,cancellation::get,msg->markFile(msg,0));
                                 output=result.file;actualFormat=result.format;keptOriginal=result.original;
                             } else {
                             boolean nativeImage = ConvertEngine.convertNativeImage(input, output, itemCfg, cancellation::get);
@@ -353,7 +352,7 @@ public final class ConversionService extends Service {
                             try {
                                 if(itemCfg.quality==SmartCompression.QUALITY){
                                     output.delete();output=null;
-                                    SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,start,length,true,sourceKey,cancellation::get,msg->markFile(msg,10));
+                                    SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,start,length,true,sourceKey,cancellation::get,msg->markFile(msg,0));
                                     output=result.file;
                                     if(!result.verified)throw new java.io.IOException("ASC PRO: результат не прошёл контроль качества");
                                 }else{
@@ -485,7 +484,7 @@ public final class ConversionService extends Service {
         try{
             while(submitted<files.size()&&submitted<workers&&!cancellation.get()){
                 final int index=submitted++;
-                done.submit(()->exportOne(files.get(index),cfg,index,tree,names,replace,cap));
+                done.submit(()->exportOne(files.get(index),cfg,index,tree,names,replace,cap,workers));
             }
             while(finished<submitted){
                 ItemResult item=done.take().get();finished++;
@@ -494,7 +493,7 @@ public final class ConversionService extends Service {
                 state.completedFiles=finished;
                 if(submitted<files.size()&&!cancellation.get()){
                     final int index=submitted++;
-                    done.submit(()->exportOne(files.get(index),cfg,index,tree,names,replace,cap));
+                    done.submit(()->exportOne(files.get(index),cfg,index,tree,names,replace,cap,workers));
                 }
                 state.parallelActive=submitted-finished;
             }
@@ -509,13 +508,13 @@ public final class ConversionService extends Service {
         return result;
     }
     private ItemResult exportOne(ConvertEngine.Source src,ConvertEngine.Config cfg,int index,
-            Uri tree,boolean names,boolean replace,int cap){
+            Uri tree,boolean names,boolean replace,int cap,int workers){
         ConvertEngine.DirectInput direct=null;File input=null,output=null;
-        ConvertEngine.setWorkerLimit(cap,Math.max(1,state.parallelActive));
+        ConvertEngine.setWorkerLimit(cap,workers);
         try{
             if(cancellation.get())return new ItemResult(false,"Отменено");
             ConvertEngine.Config itemCfg=ConvertEngine.forSource(cfg,src);
-            batchProgress(index,2,"Подготовка: "+src.name);
+            batchProgress(index,0,"Подготовка: "+src.name);
             if(replace&&!OutputPolicy.canReplace(this,src.uri))
                 throw new java.io.IOException("Нет доступа к исходной папке. Предоставьте разрешение на запись; оригинал не изменён");
             // Replacement needs an independent snapshot for the final original-byte check.
@@ -534,9 +533,9 @@ public final class ConversionService extends Service {
             long modified=ConvertEngine.modified(this,src.uri);
             String key=modified>0&&src.size>0?src.uri+"|"+src.size+"|"+modified+"|"+itemCfg.mode+"|"+itemCfg.performance:null;
             String format=itemCfg.format;boolean kept=false;
-            batchProgress(index,10,"Конвертация: "+src.name);
+            batchProgress(index,0,"Конвертация → "+format.toUpperCase(java.util.Locale.ROOT)+": "+src.name);
             if(itemCfg.quality==SmartCompression.QUALITY){
-                SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,false,key,cancellation::get,msg->batchProgress(index,15,msg+" · "+src.name));
+                SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,false,key,cancellation::get,msg->batchProgress(index,0,msg+" · "+src.name));
                 output=result.file;format=result.format;kept=result.original;
             }else{
                 output=ConvertEngine.outputTemp(this,format);
@@ -546,6 +545,7 @@ public final class ConversionService extends Service {
                 }
             }
             if(cancellation.get())return new ItemResult(false,"Отменено");
+            batchProgress(index,85,"Кодирование завершено: "+src.name+" → "+format.toUpperCase(java.util.Locale.ROOT));
             String mime=kept?getContentResolver().getType(src.uri):ConvertEngine.mime(itemCfg.mode,format);
             if(mime==null)mime=ConvertEngine.mime(itemCfg.mode,format);
             if(replace&&!kept){

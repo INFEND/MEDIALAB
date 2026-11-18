@@ -65,13 +65,14 @@ public final class MainActivity extends Activity {
     private int parallelWorkers=2;
     private Button outputFolderButton,sourceAccessButton,resetOutputButton;
     private android.widget.Switch namesSwitch,replaceSwitch;
-    private Spinner workersSpinner;
+    private SeekBar workersSeek;
+    private TextView workersLabel;
     private android.content.SharedPreferences outputPrefs(){return getSharedPreferences(OutputPolicy.PREF,MODE_PRIVATE);}
     private void readOutputPrefs(){
         String saved=outputPrefs().getString(OutputPolicy.TREE,"");
         outputTree=saved.isEmpty()?null:Uri.parse(saved);
         originalNames=outputPrefs().getBoolean(OutputPolicy.NAMES,false);
-        parallelWorkers=Math.max(1,Math.min(4,outputPrefs().getInt(OutputPolicy.WORKERS,2)));
+        parallelWorkers=Math.max(1,Math.min(ConvertEngine.maxParallelWorkers(),outputPrefs().getInt(OutputPolicy.WORKERS,2)));
     }
     private void chooseOutputTree(boolean sourceAccess){
         if(ConversionService.state.running&&ConversionService.state.exporting)return;
@@ -704,7 +705,7 @@ public final class MainActivity extends Activity {
         }
         updateEstimateAnimation();
         // Preview has its own progress and error panel; it is not a failed export.
-        if (s.exporting) {
+        if (s.exporting && launchDeadline==0) {
             if (progressBar != null) progressBar.setProgress(s.progress);
             if (fileProgressBar != null) fileProgressBar.setProgress(s.fileProgress);
             if (totalProgressLabel != null) totalProgressLabel.setText("Общий прогресс   " + s.progress + "%");
@@ -1007,7 +1008,7 @@ public final class MainActivity extends Activity {
             }
         });
         settings.addView(qualitySeek,boxLp(-1,dp(45),6));
-        settings.addView(txt("10 ручных уровней + ASC PRO · автоформат, исходное разрешение, проверка качества. Может работать дольше.",11,SECONDARY,false),boxLp(-1,-2,12));
+        settings.addView(txt(mode==ConvertEngine.IMAGE?"10 ручных уровней + ASC PRO · выбранный формат, исходное разрешение и контроль качества.":"10 ручных уровней + ASC PRO · автоформат, исходное разрешение, проверка качества.",11,SECONDARY,false),boxLp(-1,-2,12));
         if (mode == ConvertEngine.VIDEO) {
             settings.addView(txt("Ограничение разрешения", 12, SECONDARY, true), boxLp(-1, -2, 6));
             resolutionSpinner = spinner(ConvertEngine.RESOLUTIONS, savedResolution[mode]);
@@ -1056,15 +1057,24 @@ public final class MainActivity extends Activity {
         sourceAccessButton.setOnClickListener(v->chooseOutputTree(true));
         run.addView(sourceAccessButton,boxLp(-1,dp(48),6));
         run.addView(txt("Одновременная обработка файлов",12,SECONDARY,true),boxLp(-1,-2,12));
-        workersSpinner=spinner(new String[]{"1 файл","2 файла","3 файла","4 файла"},parallelWorkers-1);
-        workersSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
-            public void onItemSelected(AdapterView<?> parent,View view,int position,long id){
-                parallelWorkers=position+1;outputPrefs().edit().putInt(OutputPolicy.WORKERS,parallelWorkers).apply();
+        workersLabel=txt(parallelWorkers+" / "+ConvertEngine.maxParallelWorkers()+" файлов",15,WHITE,true);
+        run.addView(workersLabel,boxLp(-1,-2,4));
+        workersSeek=new SeekBar(this);
+        workersSeek.setMax(Math.max(0,ConvertEngine.maxParallelWorkers()-1));
+        workersSeek.setProgress(parallelWorkers-1);
+        workersSeek.setProgressTintList(ColorStateList.valueOf(BLUE));
+        workersSeek.setThumbTintList(ColorStateList.valueOf(BLUE));
+        workersSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar bar,int value,boolean user){
+                parallelWorkers=value+1;
+                workersLabel.setText(parallelWorkers+" / "+ConvertEngine.maxParallelWorkers()+" файлов");
+                outputPrefs().edit().putInt(OutputPolicy.WORKERS,parallelWorkers).apply();
             }
-            public void onNothingSelected(AdapterView<?> parent){}
+            public void onStartTrackingTouch(SeekBar bar){}
+            public void onStopTrackingTouch(SeekBar bar){}
         });
-        run.addView(workersSpinner,boxLp(-1,dp(48),4));
-        run.addView(txt("Для видео и ASC PRO не более двух задач одновременно; на каждом файле действует свой лимит потоков.",11,SECONDARY,false),boxLp(-1,-2,4));
+        run.addView(workersSeek,boxLp(-1,dp(45),4));
+        run.addView(txt("От 1 до числа логических ядер. Фактическое число задач ограничивается доступной памятью; потоки делятся между файлами.",11,SECONDARY,false),boxLp(-1,-2,4));
         refreshOutputControls();
         
         exportButton = button("⇢  Конвертировать и сохранить", true);
@@ -1807,10 +1817,10 @@ public final class MainActivity extends Activity {
         if(namesSwitch!=null)namesSwitch.setEnabled(!exportingNow);
         if(replaceSwitch!=null)replaceSwitch.setEnabled(!exportingNow && mode!=ConvertEngine.EXTRACT);
         if(sourceAccessButton!=null)sourceAccessButton.setEnabled(!exportingNow);
-        if(workersSpinner!=null)workersSpinner.setEnabled(!exportingNow);
+        if(workersSeek!=null)workersSeek.setEnabled(!exportingNow);
         if (qualitySeek != null) qualitySeek.setEnabled(!exportingNow);
         boolean smart=savedQuality[mode]==SmartCompression.QUALITY;
-        if (formatSpinner != null) formatSpinner.setEnabled(!exportingNow && !smart);
+        if (formatSpinner != null) formatSpinner.setEnabled(!exportingNow && (!smart || mode==ConvertEngine.IMAGE));
         if (resolutionSpinner != null) resolutionSpinner.setEnabled(!exportingNow && !smart);
         if (bitrateSpinner != null) bitrateSpinner.setEnabled(!exportingNow && !smart);
     }
@@ -1863,7 +1873,12 @@ public final class MainActivity extends Activity {
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
             else startService(intent);
             busy = true;
-            if (progressBar != null) progressBar.setProgress(0);
+            if(exporting){
+                if(progressBar!=null)progressBar.setProgress(0);
+                if(fileProgressBar!=null)fileProgressBar.setProgress(0);
+                if(totalProgressLabel!=null)totalProgressLabel.setText("Общий прогресс   0%");
+                if(fileProgressLabel!=null)fileProgressLabel.setText("Текущий файл   0%");
+            }
             setStatus(exporting ? "Запущена фоновая конвертация. Можно свернуть приложение." :
                     "Готовим реальный фрагмент из середины файла…", false);
             updateButtons();

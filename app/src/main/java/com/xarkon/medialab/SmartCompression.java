@@ -58,13 +58,17 @@ final class SmartCompression {
         check(canceled);
         Result best=null;
         Diagnostics diagnostics=new Diagnostics();
-        if(cfg.mode==ConvertEngine.IMAGE) best=image(ctx,in,preview,cfg.performance,canceled,status);
+        if(cfg.mode==ConvertEngine.IMAGE) best=image(ctx,in,cfg,canceled,status);
         else if(cfg.mode==ConvertEngine.VIDEO || cfg.mode==ConvertEngine.AUDIO || cfg.mode==ConvertEngine.EXTRACT)
             best=av(ctx,in,cfg,info,start,length,preview,sourceKey,canceled,status,diagnostics);
         if(canceled.canceled()){if(best!=null)best.file.delete();check(canceled);}
-        // Never publish a bigger file in smart mode (except extraction, which is a different medium).
-        if(best!=null && (length>0 || cfg.mode==ConvertEngine.EXTRACT || best.file.length()<in.length())) return best;
+        // An explicit format must match the bytes, not merely the filename. Changing
+        // containers can legitimately require more space; same-format ASC never grows.
+        boolean imageFormatChange=cfg.mode==ConvertEngine.IMAGE&&!cfg.format.equals(normalizedImageExt(in));
+        if(best!=null && (imageFormatChange || length>0 || cfg.mode==ConvertEngine.EXTRACT || best.file.length()<in.length())) return best;
         if(best!=null) best.file.delete();
+        if(imageFormatChange)
+            throw new IOException("ASC PRO: не удалось получить проверенное изображение в формате "+cfg.format.toUpperCase(Locale.ROOT)+". Исходный файл не изменён.");
         if(length>0 || cfg.mode==ConvertEngine.EXTRACT)
             throw new IOException("ASC PRO: проверенный результат не найден. "+diagnostics.details()+". Исходный файл не изменён.");
         status.update("ASC PRO: исходник уже оптимален или проверка качества не пройдена");
@@ -89,16 +93,22 @@ final class SmartCompression {
             d.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB));
         });
     }
-    private static Result image(Context ctx,File in,boolean preview,int performance,ConvertEngine.Canceled c,Status status) throws IOException {
+    private static String normalizedImageExt(File f){
+        String x=ext(f);
+        if("jpeg".equals(x)||"jpe".equals(x))return "jpg";
+        if("tif".equals(x))return "tiff";
+        return x;
+    }
+    private static Result image(Context ctx,File in,ConvertEngine.Config cfg,ConvertEngine.Canceled c,Status status) throws IOException {
+        int performance=cfg.performance;
+        boolean changed=!cfg.format.equals(normalizedImageExt(in));
         Bitmap a=null; Result best=null; File avifInput=null;
         try{
             a=bitmap(in);
             // Lossless candidate also protects alpha, text and line art.
-            String[] formats=a.hasAlpha()?new String[]{"webp","png"}:
-                    performance==3 && ("jpg".equals(ext(in))||"jpeg".equals(ext(in)))?
-                    new String[]{"jpg","webp","avif","png"}:new String[]{"webp","jpg","avif","png"};
+            String[] formats={cfg.format};
             for(String fmt:formats){
-                int[] qualities="png".equals(fmt)?new int[]{100}:a.hasAlpha()?new int[]{100}:
+                int[] qualities=("png".equals(fmt)||"bmp".equals(fmt)||"tiff".equals(fmt)||"gif".equals(fmt))?new int[]{100}:a.hasAlpha()?new int[]{100}:
                     performance==3?("avif".equals(fmt)?new int[]{94,98}:new int[]{84,94,98}):"avif".equals(fmt)?new int[]{94,98}:new int[]{84,94,98,100};
                 for(int q:qualities){
                     check(c);
@@ -106,7 +116,7 @@ final class SmartCompression {
                     try{
                         status.update("ASC PRO · фото: "+fmt.toUpperCase(Locale.ROOT)+" "+q+" · контроль деталей");
                         boolean ok;
-                        if("avif".equals(fmt)){
+                        if("avif".equals(fmt)||"bmp".equals(fmt)||"tiff".equals(fmt)||"gif".equals(fmt)){
                             // The oriented bitmap is the reference; compare dimensions and pixels after decode.
                             if(avifInput==null){
                                 avifInput=ConvertEngine.outputTemp(ctx,"png");
@@ -114,7 +124,13 @@ final class SmartCompression {
                                     if(!a.compress(Bitmap.CompressFormat.PNG,100,stream)){avifInput.delete();avifInput=null;throw new IOException("PNG intermediate failed");}
                                 }
                             }
-                            ok=exec(c,"-i",avifInput.getAbsolutePath(),"-frames:v","1","-c:v","libaom-av1","-still-picture","1","-cpu-used","8","-threads",String.valueOf(ConvertEngine.threads(performance)),"-row-mt","1","-crf",String.valueOf(63-q*45/100),"-b:v","0",out.getAbsolutePath())!=null;
+                            if("avif".equals(fmt))
+                                ok=exec(c,"-i",avifInput.getAbsolutePath(),"-frames:v","1","-c:v","libaom-av1","-still-picture","1","-cpu-used","8","-threads",String.valueOf(ConvertEngine.threads(performance)),"-row-mt","1","-crf",String.valueOf(63-q*45/100),"-b:v","0",out.getAbsolutePath())!=null;
+                            else{
+                                ConvertEngine.Config target=new ConvertEngine.Config(ConvertEngine.IMAGE,fmt,q,0,cfg.audioBitrate,performance);
+                                FFmpegSession session=ConvertEngine.convert(avifInput,out,target,new ConvertEngine.MediaInfo(),0,0);
+                                ok=session!=null&&ReturnCode.isSuccess(session.getReturnCode());
+                            }
                         } else {
                             Bitmap.CompressFormat codec="jpg".equals(fmt)?Bitmap.CompressFormat.JPEG:
                                 "png".equals(fmt)?Bitmap.CompressFormat.PNG:
@@ -122,7 +138,7 @@ final class SmartCompression {
                             if(a.hasAlpha() && "webp".equals(fmt) && Build.VERSION.SDK_INT<30)continue;
                             try(OutputStream stream=new FileOutputStream(out)){ok=a.compress(codec,q,stream);}
                         }
-                        if(!ok || out.length()<=0 || out.length()>=in.length() || (best!=null && out.length()>=best.file.length()))continue;
+                        if(!ok || out.length()<=0 || (!changed && out.length()>=in.length()) || (best!=null && out.length()>=best.file.length()))continue;
                         b=bitmap(out);
                         if(!photoPass(a,b,performance,c))continue;
                         if(best!=null)best.file.delete();

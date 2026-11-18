@@ -44,7 +44,7 @@ final class ConvertEngine {
 
     /** Resolve the per-file container, required for mixed original-format batches. */
     static String outputFormat(Config cfg, Source src) {
-        if(cfg.quality==SmartCompression.QUALITY) return cfg.mode==IMAGE?"webp":cfg.mode==VIDEO?"mkv":"opus";
+        if(cfg.quality==SmartCompression.QUALITY && cfg.mode!=IMAGE) return cfg.mode==VIDEO?"mkv":"opus";
         if (!"Исходный".equals(cfg.format)) return cfg.format;
         if (cfg.mode == EXTRACT) return "m4a"; // audio-only output from a video container
         String ext = extension(src.name);
@@ -360,6 +360,17 @@ final class ConvertEngine {
     static long nativeImagePixelBudget(){
         Integer parallel=PARALLEL_COUNT.get();if(parallel==null||parallel<=1)return 24_000_000L;
         return Math.max(1_000_000L,Math.min(24_000_000L,Runtime.getRuntime().maxMemory()/(parallel*24L)));
+    }
+    static int maxParallelWorkers(){return Math.max(1,Runtime.getRuntime().availableProcessors());}
+    // Budget concurrent tasks against both CPU and remaining heap. Large image decodes
+    // still use the existing per-worker memory budget and native fallback.
+    static int safeParallelWorkers(int requested,Config cfg){
+        Runtime rt=Runtime.getRuntime();
+        long free=Math.max(0,rt.maxMemory()-(rt.totalMemory()-rt.freeMemory()));
+        long reserve=48L*1024*1024;
+        long perTask=(cfg.mode==IMAGE?(cfg.quality==SmartCompression.QUALITY?192L:64L):128L)*1024*1024;
+        int byMemory=(int)Math.max(1,Math.min(Integer.MAX_VALUE,(free-reserve)/perTask));
+        return Math.max(1,Math.min(Math.min(requested,maxParallelWorkers()),byMemory));
     }
     static int threads(int performance){
         int cores=Math.max(1,Runtime.getRuntime().availableProcessors());
