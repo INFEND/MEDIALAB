@@ -266,23 +266,23 @@ public final class OtaUpdater {
                 File apk=file(a);
                 if(!apk.isFile()||apk.length()!=release.size||!release.sha.equals(hash(apk)))
                     throw new IOException("APK изменён или повреждён. Загрузите обновление повторно.");
-                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())install(a,ui);});
+                main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())install(a,release,ui);});
             }catch(Exception e){
                 main.post(()->{if(!a.isFinishing()&&!a.isDestroyed())
                     ui.fail(e.getMessage()==null?"Ошибка проверки APK":e.getMessage(),()->download(a,release,ui));});
             }
         });
     }
-    private static void install(Activity a,MediaOtaDialog ui){
+    private static void install(Activity a,Release release,MediaOtaDialog ui){
         try{
             File apk=file(a);if(!apk.isFile())throw new IOException("APK отсутствует");
             checkSigner(a,apk);
             PackageInfo archive=a.getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(),0);
             PackageInfo installed=a.getPackageManager().getPackageInfo(a.getPackageName(),0);
-            if(archive==null||archive.getLongVersionCode()<=installed.getLongVersionCode())throw new IOException("Обновление уже установлено или устарело");
+            if(archive==null||archive.getLongVersionCode()!=release.code||archive.getLongVersionCode()<=installed.getLongVersionCode())throw new IOException("Обновление уже установлено или устарело");
             if(Build.VERSION.SDK_INT>=26&&!a.getPackageManager().canRequestPackageInstalls()){
                 ui.fail("Разрешите установку APK для MediaLAB в настройках Android",
-                    ()->install(a,ui));
+                    ()->verifyAndInstall(a,release,ui));
                 Intent settings=new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                     Uri.parse("package:"+a.getPackageName()));
                 a.startActivity(settings);return;
@@ -294,7 +294,7 @@ public final class OtaUpdater {
             i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_ACTIVITY_NEW_TASK);
             a.getApplicationContext().startActivity(i);
         }catch(Exception e){
-            ui.fail(e.getMessage()==null?"Ошибка установки":e.getMessage(),()->install(a,ui));
+            ui.fail(e.getMessage()==null?"Ошибка установки":e.getMessage(),()->verifyAndInstall(a,release,ui));
         }
     }
 }
