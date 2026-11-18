@@ -23,6 +23,24 @@ final class AscVideoOptions {
         for(String codec:preferred)if(available.contains(codec))result.add(codec);
         return result.toArray(new String[0]);
     }
+    /** Up to five non-overlapping samples. Long clips cover different scene complexity. */
+    static List<Long> sampleStarts(long durationMs,long clipMs){
+        if(durationMs<=0||clipMs<=0)return Collections.singletonList(0L);
+        long span=Math.max(0,durationMs-clipMs);
+        int count=(int)Math.min(5,Math.max(1,durationMs/clipMs));
+        if(count==1)return Collections.singletonList(span/2);
+        ArrayList<Long> starts=new ArrayList<>();
+        if(count==5&&durationMs>=10.0*clipMs){
+            for(int p:new int[]{15,30,50,70,80})
+                starts.add(Math.max(0,Math.min(span,Math.round(durationMs*(p/100.0))-clipMs/2)));
+        }else for(int i=0;i<count;i++)
+            starts.add(Math.round(span*(i/(double)(count-1))));
+        return starts;
+    }
+    static long estimateBytes(long sampleBytes,long sampledMs,long durationMs){
+        if(sampleBytes<=0||sampledMs<=0||durationMs<=0)return -1;
+        return Math.max(1,Math.round(sampleBytes*(durationMs/(double)sampledMs)));
+    }
     static boolean hardware(String codec){return codec.endsWith("_mediacodec");}
     static int[] steps(String codec,int performance){
         if(hardware(codec))return performance==3?new int[]{50,75,100,135}:new int[]{45,60,80,100,135};
