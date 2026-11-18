@@ -201,11 +201,12 @@ public final class OtaUpdater {
     public static void checkAndOffer(Activity a,int accent){
         if(a.isFinishing()||a.isDestroyed())return;
         MediaOtaDialog existing=active.get();
-        if(owner.get()==a && existing!=null){
+        if(owner.get()==a && existing!=null && existing.matchesAppearance(accent,a.getPreferences(0).getInt("theme",0))){
             existing.show();
             if(!busy && existing.needsRefresh())check(a,accent,existing);
             return;
         }
+        if(existing!=null)existing.dismiss();
         MediaOtaDialog ui=new MediaOtaDialog(a,accent);
         owner=new java.lang.ref.WeakReference<>(a);active=new java.lang.ref.WeakReference<>(ui);
         ui.show();
@@ -238,6 +239,7 @@ public final class OtaUpdater {
         });
     }
     private static void download(Activity a,Release release,MediaOtaDialog ui){
+        if(busy)return;
         busy=true;publish(d->d.stage("Подготовка загрузки…","MediaLAB "+release.name));
         worker.execute(()->{
             File target=file(a),temp=new File(target.getParentFile(),"MediaLAB-candidate-"+release.sha+".apk");
@@ -316,6 +318,7 @@ public final class OtaUpdater {
         });
     }
     private static void verifyAndInstall(Activity a,Release release,MediaOtaDialog ui){
+        if(busy)return;
         busy=true;publish(d->d.stage("Проверка APK…","Сверяем SHA-256 перед установкой"));
         worker.execute(()->{
             try{
@@ -336,8 +339,8 @@ public final class OtaUpdater {
             PackageInfo installed=a.getPackageManager().getPackageInfo(a.getPackageName(),0);
             if(archive==null||archive.getLongVersionCode()!=release.code||archive.getLongVersionCode()<=installed.getLongVersionCode())throw new IOException("Обновление уже установлено или устарело");
             if(Build.VERSION.SDK_INT>=26&&!a.getPackageManager().canRequestPackageInstalls()){
-                ui.fail("Разрешите установку APK для MediaLAB в настройках Android",
-                    ()->verifyAndInstall(a,release,ui));
+                finish(d->d.fail("Разрешите установку APK для MediaLAB в настройках Android",
+                    ()->withOwner((host,dialog)->verifyAndInstall(host,release,dialog))));
                 Intent settings=new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                     Uri.parse("package:"+a.getPackageName()));
                 a.startActivity(settings);return;
@@ -349,9 +352,10 @@ public final class OtaUpdater {
             i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_ACTIVITY_NEW_TASK);
             a.getApplicationContext().startActivity(i);
             // The installer may be cancelled; restore the verified offer instead of leaving VERIFY spinning forever.
-            ui.ready(release.name,()->verifyAndInstall(a,release,ui));
+            finish(d->d.ready(release.name,()->withOwner((host,dialog)->verifyAndInstall(host,release,dialog))));
         }catch(Exception e){
-            ui.fail(e.getMessage()==null?"Ошибка установки":e.getMessage(),()->verifyAndInstall(a,release,ui));
+            String message=e.getMessage()==null?"Ошибка установки":e.getMessage();
+            finish(d->d.fail(message,()->withOwner((host,dialog)->verifyAndInstall(host,release,dialog))));
         }
     }
 }
