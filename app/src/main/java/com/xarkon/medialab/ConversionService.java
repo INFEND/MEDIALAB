@@ -310,6 +310,8 @@ public final class ConversionService extends Service {
                                 output.delete(); output=null;
                                 SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,!exporting,sourceKey,cancellation::get,msg->markFile(msg,0));
                                 output=result.file;actualFormat=result.format;keptOriginal=result.original;
+                                if(itemCfg.mode==ConvertEngine.VIDEO&&(keptOriginal||output.equals(input)||!result.verified||output.length()>=input.length()))
+                                    throw new java.io.IOException("ASC PRO: видео не сжато. Исходный файл не изменён.");
                             } else {
                             boolean nativeImage = ConvertEngine.convertNativeImage(input, output, itemCfg, cancellation::get);
                             if(!nativeImage) {
@@ -354,7 +356,7 @@ public final class ConversionService extends Service {
                                     output.delete();output=null;
                                     SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,start,length,true,sourceKey,cancellation::get,msg->markFile(msg,0));
                                     output=result.file;
-                                    if(!result.verified)throw new java.io.IOException("ASC PRO: результат не прошёл контроль качества");
+                                    if(!result.verified||result.original||output.equals(input))throw new java.io.IOException("ASC PRO: результат не прошёл контроль качества");
                                 }else{
                                     FFmpegSession session = ConvertEngine.convert(input, output, itemCfg, info, start, length);
                                     validate(session, output);
@@ -537,6 +539,8 @@ public final class ConversionService extends Service {
             if(itemCfg.quality==SmartCompression.QUALITY){
                 SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,false,key,cancellation::get,msg->batchProgress(index,0,msg+" · "+src.name));
                 output=result.file;format=result.format;kept=result.original;
+                if(itemCfg.mode==ConvertEngine.VIDEO&&(kept||output.equals(input)||!result.verified||output.length()>=input.length()))
+                    throw new java.io.IOException("ASC PRO: видео не сжато. Исходный файл не изменён.");
             }else{
                 output=ConvertEngine.outputTemp(this,format);
                 if(!ConvertEngine.convertNativeImage(input,output,itemCfg,cancellation::get)){
