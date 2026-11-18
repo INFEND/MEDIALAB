@@ -94,10 +94,7 @@ final class SmartCompression {
         });
     }
     private static String normalizedImageExt(File f){
-        String x=ext(f);
-        if("jpeg".equals(x)||"jpe".equals(x))return "jpg";
-        if("tif".equals(x))return "tiff";
-        return x;
+        return ConvertEngine.normalizedImageExtension(f.getName());
     }
     private static Result image(Context ctx,File in,ConvertEngine.Config cfg,ConvertEngine.Canceled c,Status status) throws IOException {
         int performance=cfg.performance;
@@ -106,6 +103,8 @@ final class SmartCompression {
         try{
             a=bitmap(in);
             // Lossless candidate also protects alpha, text and line art.
+            // An unsupported original-format encoder must never fall through to WebP.
+            if(!Arrays.asList("jpg","png","webp","avif","bmp","tiff","gif").contains(cfg.format))return null;
             String[] formats={cfg.format};
             for(String fmt:formats){
                 int[] qualities=("png".equals(fmt)||"bmp".equals(fmt)||"tiff".equals(fmt)||"gif".equals(fmt))?new int[]{100}:a.hasAlpha()?new int[]{100}:

@@ -56,7 +56,19 @@ final class ConvertEngine {
         if ("3gp".equals(ext)) ext = "mp4";
         for (int i=1; i<FORMATS[cfg.mode].length; i++)
             if (FORMATS[cfg.mode][i].equals(ext)) return ext;
+        if(cfg.mode==IMAGE && cfg.quality==SmartCompression.QUALITY && !ext.isEmpty())return ext;
         throw new IllegalArgumentException("Исходный формат ."+ext+" не поддерживается кодировщиком. Выберите формат результата вручную.");
+    }
+
+    static String normalizedImageExtension(String name){
+        String x=extension(name);
+        if("jpeg".equals(x)||"jpe".equals(x))return "jpg";
+        if("tif".equals(x))return "tiff";
+        return x;
+    }
+    static boolean smartImageFormatChange(Config cfg,Source src){
+        return cfg.mode==IMAGE&&cfg.quality==SmartCompression.QUALITY&&
+                !outputFormat(cfg,src).equals(normalizedImageExtension(src.name));
     }
 
     static Config forSource(Config cfg, Source src) {
@@ -188,7 +200,10 @@ final class ConvertEngine {
     // Cheap prediction. This is *not* called a measured file size.
     // Video: same target bitrate expression as the actual encoder.
     static long quickEstimate(Source source, Config cfg, MediaInfo info) {
-        if(cfg.quality==SmartCompression.QUALITY)return cfg.mode!=EXTRACT&&source.size>0?source.size:-1; // conservative upper bound, not a prediction
+        if(cfg.quality==SmartCompression.QUALITY){
+            if(cfg.mode==IMAGE&&smartImageFormatChange(cfg,source))return -1;
+            return cfg.mode!=EXTRACT&&source.size>0?source.size:-1; // upper bound only when original may be preserved
+        }
         long original = Math.max(0, source.size);
         long duration = info == null ? 0 : info.durationMs;
         if (cfg.mode == VIDEO && duration > 0 && info.width > 0 && info.height > 0 && !"gif".equals(cfg.format)) {

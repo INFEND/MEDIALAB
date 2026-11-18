@@ -1546,10 +1546,15 @@ public final class MainActivity extends Activity {
         estimateCard.addView(text,new LinearLayout.LayoutParams(0,-2,1));
         estimateBox.addView(estimateCard,boxLp(-1,-2,9));
         boolean smart=savedQuality[mode]==SmartCompression.QUALITY;
-        estimateBox.addView(txt(smart?"ASC PRO · ВЕРХНЯЯ ГРАНИЦА РАЗМЕРА":"БЫСТРЫЙ ПРОГНОЗ · БЕЗ ПЕРЕКОДИРОВАНИЯ",10,SECONDARY,true),boxLp(-1,-2,5));
-        estimateAmountLabel=txt(fastEstimatedBytes>0?(smart?"≤ ":"≈ ")+ConvertEngine.humanBytes(fastEstimatedBytes):"Определяем параметры…",21,BLUE,true);
+        boolean changedFormat=false;
+        if(smart&&mode==ConvertEngine.IMAGE){
+            ConvertEngine.Config cfg=config();
+            for(ConvertEngine.Source src:queue)if(ConvertEngine.smartImageFormatChange(cfg,src)){changedFormat=true;break;}
+        }
+        estimateBox.addView(txt(changedFormat?"ASC PRO · ОЦЕНКА ПО ОБРАЗЦУ":smart?"ASC PRO · ВЕРХНЯЯ ГРАНИЦА РАЗМЕРА":"БЫСТРЫЙ ПРОГНОЗ · БЕЗ ПЕРЕКОДИРОВАНИЯ",10,SECONDARY,true),boxLp(-1,-2,5));
+        estimateAmountLabel=txt(changedFormat?"После проверки образца":fastEstimatedBytes>0?(smart?"≤ ":"≈ ")+ConvertEngine.humanBytes(fastEstimatedBytes):"Определяем параметры…",21,BLUE,true);
         estimateBox.addView(estimateAmountLabel,boxLp(-1,-2,5));
-        estimateBox.addView(txt(smart?"До проверки образца точная экономия неизвестна.":"Предварительно по параметрам. Прогноз уточнится по центральному фрагменту.",11,SECONDARY,false));
+        estimateBox.addView(txt(changedFormat?"При смене формата размер может увеличиться.":smart?"До проверки образца точная экономия неизвестна.":"Предварительно по параметрам. Прогноз уточнится по центральному фрагменту.",11,SECONDARY,false));
         updateEstimateAnimation();
     }
     private void updateEstimateAnimation() {
