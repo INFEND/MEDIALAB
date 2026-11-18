@@ -25,9 +25,9 @@ final class AscVideoOptions {
     }
     static boolean hardware(String codec){return codec.endsWith("_mediacodec");}
     static int[] steps(String codec,int performance){
-        if(hardware(codec))return performance==3?new int[]{80,135,220}:new int[]{70,100,150,220};
+        if(hardware(codec))return performance==3?new int[]{50,75,100,135}:new int[]{45,60,80,100,135};
         if("mpeg4".equals(codec))return new int[]{2,1};
-        return performance==3?new int[]{18,10,4}:new int[]{22,16,10,4};
+        return performance==3?new int[]{26,18,10,4}:new int[]{30,24,18,12,6};
     }
     static long hardwareRate(long sourceRate,int percent){
         return Math.max(150_000L,Math.min(160_000_000L,Math.round(sourceRate*(percent/100.0))));
