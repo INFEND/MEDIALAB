@@ -15,7 +15,7 @@ import java.util.Locale;
 public final class MediaOtaDialog {
  private final Activity activity;
  private final Dialog dialog;
- private final TextView title,subtitle,detail,bytes,percent,notes,primary,secondary;
+ private final TextView title,subtitle,stageLabel,detail,bytes,percent,notes,primary,secondary;
  private final ProgressBar progress;
  private final OtaRingView ring;
  private final ScrollView history;
@@ -43,7 +43,7 @@ public final class MediaOtaDialog {
   dialog=new Dialog(a);dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
   LinearLayout root=new LinearLayout(a);root.setOrientation(1);
   root.setPadding(dp(22),dp(22),dp(22),dp(20));
-  root.setBackground(bg(light?0xfff9fbfd:mode==1?0xff101012:0xff15212d,light?0xffdce3ec:0xff304050));
+  root.setBackground(bg(light?0xffffffff:mode==1?0xff101013:0xff14212d,light?0xffdce4ed:mode==1?0xff303036:0xff304252));
   LinearLayout header=new LinearLayout(a);header.setGravity(Gravity.CENTER_VERTICAL);
   LinearLayout.LayoutParams spinLp=new LinearLayout.LayoutParams(dp(53),dp(53));spinLp.rightMargin=dp(15);
   FrameLayout ringFrame=new FrameLayout(a);
@@ -56,22 +56,25 @@ public final class MediaOtaDialog {
   titles.addView(title);header.addView(titles,new LinearLayout.LayoutParams(0,-2,1));root.addView(header);
   subtitle=label("БЕЗОПАСНОЕ ОБНОВЛЕНИЕ",10,muted);subtitle.setTypeface(null,Typeface.BOLD);
   LinearLayout.LayoutParams sublp=new LinearLayout.LayoutParams(-1,-2);sublp.topMargin=dp(8);titles.addView(subtitle,sublp);
-  detail=label("Подключение к серверу…",13,muted);
-  LinearLayout.LayoutParams dlp=new LinearLayout.LayoutParams(-1,-2);dlp.topMargin=dp(16);
+  stageLabel=label("Проверка соединения…",15,fg);stageLabel.setTypeface(null,Typeface.BOLD);
+  LinearLayout.LayoutParams stageLp=new LinearLayout.LayoutParams(-1,-2);stageLp.topMargin=dp(25);root.addView(stageLabel,stageLp);
+  detail=label("Подключение к серверу…",12,muted);
+  LinearLayout.LayoutParams dlp=new LinearLayout.LayoutParams(-1,-2);dlp.topMargin=dp(7);
   root.addView(detail,dlp);
   history=new ScrollView(a);history.setBackground(bg(light?0xffeff3f8:0xff0d141c,0));
   notes=label("",13,fg);notes.setPadding(dp(12),dp(12),dp(12),dp(12));notes.setLineSpacing(dp(3),1f);
-  history.addView(notes);LinearLayout.LayoutParams hlp=new LinearLayout.LayoutParams(-1,dp(185));
+  history.setVerticalScrollBarEnabled(false);history.addView(notes);LinearLayout.LayoutParams hlp=new LinearLayout.LayoutParams(-1,dp(172));
   hlp.topMargin=dp(14);root.addView(history,hlp);history.setVisibility(View.GONE);
   LinearLayout numbers=new LinearLayout(a);
-  LinearLayout.LayoutParams nlp=new LinearLayout.LayoutParams(-1,-2);nlp.topMargin=dp(17);
+  LinearLayout.LayoutParams nlp=new LinearLayout.LayoutParams(-1,-2);nlp.topMargin=dp(22);
   root.addView(numbers,nlp);
-  bytes=label("",12,muted);numbers.addView(bytes,new LinearLayout.LayoutParams(0,-2,1));
+  bytes=label("",13,fg);bytes.setTypeface(null,Typeface.BOLD);numbers.addView(bytes,new LinearLayout.LayoutParams(0,-2,1));
   percent=label("",18,tint);percent.setTypeface(null,Typeface.BOLD);numbers.addView(percent);
   progress=new ProgressBar(a,null,android.R.attr.progressBarStyleHorizontal);
   progress.setMax(1000);progress.setIndeterminate(true);
   progress.setProgressTintList(ColorStateList.valueOf(tint));
   progress.setIndeterminateTintList(ColorStateList.valueOf(tint));
+  progress.setProgressBackgroundTintList(ColorStateList.valueOf(light?0xffe9eef3:0xff2a3139));
   LinearLayout.LayoutParams plp=new LinearLayout.LayoutParams(-1,dp(6));plp.topMargin=dp(10);
   root.addView(progress,plp);
   LinearLayout actions=new LinearLayout(a);actions.setGravity(Gravity.END);
@@ -108,7 +111,7 @@ public final class MediaOtaDialog {
  public boolean isShowing(){return dialog.isShowing();}
  public void stage(String message,String hint){
   state=(message.toLowerCase(new Locale("ru")).contains("провер") && (message.toLowerCase(new Locale("ru")).contains("apk") || message.toLowerCase(new Locale("ru")).contains("подпис") || message.toLowerCase(new Locale("ru")).contains("sha"))) ? State.VERIFY : State.CHECK;
-  title.setText(message);detail.setText(hint);ring.setChecking(true);
+  title.setText("Обновление MediaLAB");stageLabel.setText(message);detail.setText(hint);ring.setChecking(true);
   receivedBytes=0L;expectedBytes=-1L;displayedBytes=0L;
   progress.setIndeterminate(true);secondary.setText("СКРЫТЬ");
   primary.setVisibility(View.GONE);bytes.setText("");percent.setText("");
@@ -117,7 +120,7 @@ public final class MediaOtaDialog {
  }
  public void offer(String version,String changes,Runnable action){
   state=State.OFFER;
-  title.setText("Доступно обновление");detail.setText("MediaLAB "+version);
+  title.setText("Доступно обновление");stageLabel.setText("MediaLAB "+version);detail.setText("Новая версия готова к загрузке");
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   displayedProgress=0;receivedBytes=0L;expectedBytes=-1L;displayedBytes=0L;
   ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
@@ -134,7 +137,7 @@ public final class MediaOtaDialog {
   receivedBytes=done;expectedBytes=total;
   state=State.DOWNLOAD;
   primary.setVisibility(View.GONE);secondary.setText("СКРЫТЬ");
-  title.setText("Загрузка обновления");detail.setText("Защищённая загрузка MediaLAB");
+  title.setText("Обновление MediaLAB");stageLabel.setText("Загрузка обновления");detail.setText("Защищённая загрузка MediaLAB");
   // Keep the progress arc determinate, with the numeric indicator synchronized below.
   ring.setChecking(false);
   progress.setIndeterminate(total<=0);
@@ -167,7 +170,7 @@ public final class MediaOtaDialog {
 
  public void ready(String version,Runnable install){
   state=State.READY;
-  title.setText("Обновление загружено");detail.setText("MediaLAB "+version+" · APK проверен");
+  title.setText("Обновление загружено");stageLabel.setText("Готово к установке");detail.setText("MediaLAB "+version+" · APK проверен");
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(1000);ring.setProgressFraction(1f);
   displayedProgress=1000;
@@ -176,7 +179,7 @@ public final class MediaOtaDialog {
  }
  public void current(String version){
   state=State.CURRENT;
-  title.setText("Установлена актуальная версия");detail.setText(version);
+  title.setText("MediaLAB обновлён");stageLabel.setText("Установлена актуальная версия");detail.setText(version);
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   displayedProgress=1000;
   ring.setChecking(false);
@@ -186,7 +189,7 @@ public final class MediaOtaDialog {
  }
  public void fail(String message,Runnable retry){
   state=State.ERROR;
-  title.setText("Ошибка обновления");detail.setText(message);
+  title.setText("Обновление не выполнено");stageLabel.setText("Не удалось обновить MediaLAB");detail.setText(message);
   displayedProgress=0;
   ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
