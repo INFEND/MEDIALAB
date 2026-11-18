@@ -1,7 +1,6 @@
 package com.xarkon.medialab;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -52,8 +51,12 @@ public final class OtaUpdater {
         }
     }
     /** Render a complete, ordered OTA history; never label a partial list as complete. */
+    private static String incompleteHistory(Release release,long installed){
+        if(release.code<=installed+1)return release.notes;
+        return "История пропущенных версий недоступна. Ниже изменения только последней версии.\n\nВерсия "+release.name+"\n"+release.notes;
+    }
     private static String changelog(Release release,long installed) {
-        if(release.history==null || release.history.length()==0)return release.notes;
+        if(release.history==null || release.history.length()==0)return incompleteHistory(release,installed);
         StringBuilder all=new StringBuilder();
         long previousCode=-1;
         long lastShown=installed;
@@ -66,62 +69,24 @@ public final class OtaUpdater {
                 if(code<=0 || code>release.code || code<=previousCode ||
                    (previousCode>0 && code!=previousCode+1) ||
                    !title.matches("[A-Za-z0-9._-]{1,40}") || !names.add(title) ||
-                   body.trim().isEmpty() || body.length()>6000)return release.notes;
+                   body.trim().isEmpty() || body.length()>6000)return incompleteHistory(release,installed);
                 previousCode=code;
                 if(code<=installed)continue;
-                if(code!=lastShown+1)return release.notes;
+                if(code!=lastShown+1)return incompleteHistory(release,installed);
                 if(all.length()>0)all.append("\n\n");
                 all.append("Версия ").append(title).append("\n").append(body);
                 lastShown=code;
             }
-        }catch(Exception error){return release.notes;}
+        }catch(Exception error){return incompleteHistory(release,installed);}
         // Latest entry must exactly match the signed release metadata.
         if(previousCode!=release.code || lastShown!=release.code ||
-           !names.contains(release.name))return release.notes;
+           !names.contains(release.name))return incompleteHistory(release,installed);
         try {
             JSONObject latest=release.history.getJSONObject(release.history.length()-1);
             if(!release.name.equals(latest.getString("versionName")) ||
-               !release.notes.equals(latest.getString("notes")))return release.notes;
-        }catch(Exception error){return release.notes;}
+               !release.notes.equals(latest.getString("notes")))return incompleteHistory(release,installed);
+        }catch(Exception error){return incompleteHistory(release,installed);}
         return all.toString();
-    }
-
-    /** Render release notes with distinct change markers and explicit **bold** phrases. */
-    private static android.text.SpannableStringBuilder styledNotes(String source) {
-        android.text.SpannableStringBuilder result=new android.text.SpannableStringBuilder();
-        if(source==null)return result;
-        for(String line:source.split("\\n",-1)){
-            if(result.length()>0)result.append("\n");
-            StringBuilder visible=new StringBuilder();
-            java.util.ArrayList<int[]> bold=new java.util.ArrayList<>();
-            int start=-1;
-            for(int i=0;i<line.length();){
-                if(i+1<line.length() && line.charAt(i)=='*' && line.charAt(i+1)=='*'){
-                    if(start<0)start=visible.length();
-                    else {if(visible.length()>start)bold.add(new int[]{start,visible.length()});start=-1;}
-                    i+=2;
-                }else visible.append(line.charAt(i++));
-            }
-            // Unclosed markup is rendered literally rather than silently dropping text.
-            if(start>=0)visible.insert(start,"**");
-            String shown=visible.toString();
-            int offset=result.length();
-            result.append(shown);
-            int tint=shown.startsWith("[+]")?0xff4dd69c:
-                shown.startsWith("[-]")?0xfff07878:
-                shown.startsWith("[=]")?0xffffaa4d:0;
-            if(tint!=0){
-                result.setSpan(new android.text.style.ForegroundColorSpan(tint),offset,offset+3,
-                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                result.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
-                    offset,offset+3,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            }
-            for(int[] range:bold)if(range[1]<=shown.length()){
-                result.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
-                    offset+range[0],offset+range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            }
-        }
-        return result;
     }
 
     private static URLConnection connection(String url) throws IOException {
@@ -184,23 +149,29 @@ public final class OtaUpdater {
             throw new IOException("Сертификат APK отличается от установленной версии. Для OTA нужна та же постоянная подпись.");
     }
     private static java.lang.ref.WeakReference<Activity> owner=new java.lang.ref.WeakReference<>(null);
-    private static java.lang.ref.WeakReference<MediaOtaDialog> active=new java.lang.ref.WeakReference<>(null);
+    private static MediaOtaDialog active;
+    /** Release the window on Activity destruction, but retain the transfer snapshot. */
+    static void detach(Activity a){
+        if(owner.get()!=a)return;
+        if(active!=null)active.dismiss();
+        active=null;owner.clear();
+    }
     private static boolean busy;
     private static String sessionNotes="";
     private static java.util.function.Consumer<MediaOtaDialog> snapshot;
     private static void publish(java.util.function.Consumer<MediaOtaDialog> state){
         snapshot=state;
-        Activity a=owner.get(); MediaOtaDialog ui=active.get();
+        Activity a=owner.get(); MediaOtaDialog ui=active;
         if(a!=null&&!a.isFinishing()&&!a.isDestroyed()&&ui!=null)state.accept(ui);
     }
     private static void finish(java.util.function.Consumer<MediaOtaDialog> state){busy=false;publish(state);}
     private static void withOwner(java.util.function.BiConsumer<Activity,MediaOtaDialog> action){
-        Activity a=owner.get(); MediaOtaDialog ui=active.get();
+        Activity a=owner.get(); MediaOtaDialog ui=active;
         if(a!=null&&!a.isFinishing()&&!a.isDestroyed()&&ui!=null)action.accept(a,ui);
     }
     public static void checkAndOffer(Activity a,int accent){
         if(a.isFinishing()||a.isDestroyed())return;
-        MediaOtaDialog existing=active.get();
+        MediaOtaDialog existing=active;
         if(owner.get()==a && existing!=null && existing.matchesAppearance(accent,a.getPreferences(0).getInt("theme",0))){
             existing.show();
             if(!busy && existing.needsRefresh())check(a,accent,existing);
@@ -208,9 +179,9 @@ public final class OtaUpdater {
         }
         if(existing!=null)existing.dismiss();
         MediaOtaDialog ui=new MediaOtaDialog(a,accent);
-        owner=new java.lang.ref.WeakReference<>(a);active=new java.lang.ref.WeakReference<>(ui);
+        owner=new java.lang.ref.WeakReference<>(a);active=ui;
         ui.show();
-        if(snapshot!=null && (busy || !sessionNotes.isEmpty())){ui.setHistory(sessionNotes);snapshot.accept(ui);if(busy||!ui.needsRefresh())return;}
+        if(snapshot!=null){ui.setHistory(sessionNotes);snapshot.accept(ui);if(busy||!ui.needsRefresh())return;}
         check(a,accent,ui);
     }
     private static void check(Activity a,int accent,MediaOtaDialog ui){
