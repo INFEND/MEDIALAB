@@ -330,15 +330,6 @@ public final class ConversionService extends Service {
                                 saved++;
                                 markFile((keptOriginal?"Сохранён без повторного сжатия: ":"Сохранён: ") + src.name, 100);
                             } else {
-                                long actualSampleMs=smartVideo?ConvertEngine.info(output).durationMs:length;
-                                if(actualSampleMs<=0)actualSampleMs=length;
-                                sampledMs += actualSampleMs;
-                                sampledBytes += output.length();
-                                state.earlySampleBytes=sampledBytes;
-                                state.earlySampleDurationMs=sampledMs;
-                                state.earlySampleCount++;
-                                markFile("Предпросмотр: участок " + (p+1) + "/" + positions.size(),
-                                        8 + 83 * (p + 1) / Math.max(1, positions.size()));
                                 previews.add(output);
                                 output = null;
                                 sampledMs = info.durationMs;
@@ -389,6 +380,15 @@ public final class ConversionService extends Service {
                                         paired = null;
                                     } finally { if (paired != null) paired.delete(); }
                                 }
+                                long actualSampleMs=smartVideo?ConvertEngine.info(output).durationMs:length;
+                                if(actualSampleMs<=0)actualSampleMs=length;
+                                sampledMs += actualSampleMs;
+                                sampledBytes += output.length();
+                                state.earlySampleBytes=sampledBytes;
+                                state.earlySampleDurationMs=sampledMs;
+                                state.earlySampleCount++;
+                                markFile("Предпросмотр: участок " + (p+1) + "/" + positions.size(),
+                                        8 + 83 * (p + 1) / Math.max(1, positions.size()));
                                 previews.add(output);
                                 output = null;
                             } catch(Exception sceneError){
