@@ -34,7 +34,7 @@ public final class OtaUpdater {
     private static final Handler main=new Handler(Looper.getMainLooper());
     static File file(android.content.Context c){File dir=new File(c.getFilesDir(),"ota");return new File(dir,"MediaLAB-update.apk");}
 
-    private static class Release {
+    static final class Release {
         final String name,sha,url,notes;
         final JSONArray history;
         final long code,size;
@@ -184,11 +184,7 @@ public final class OtaUpdater {
         if(snapshot!=null){ui.setHistory(sessionNotes);snapshot.accept(ui);if(busy||!ui.needsRefresh())return;}
         check(a,accent,ui);
     }
-    private static void check(Activity a,int accent,MediaOtaDialog ui){
-        if(busy)return;
-        sessionNotes="";busy=true;publish(d->{d.setHistory("");d.stage("Проверка соединения…","Подключение к серверу…");});
-        worker.execute(()->{
-            try{
+    static Release readRelease() throws Exception {
                 URLConnection conn=connection(MANIFEST);
                 ByteArrayOutputStream data=new ByteArrayOutputStream();
                 try(InputStream in=conn.getInputStream()){
@@ -198,7 +194,14 @@ public final class OtaUpdater {
                         data.write(b,0,n);
                     }
                 } finally {((HttpURLConnection)conn).disconnect();}
-                Release release=new Release(new JSONObject(data.toString("UTF-8")));
+                return new Release(new JSONObject(data.toString("UTF-8")));
+    }
+    private static void check(Activity a,int accent,MediaOtaDialog ui){
+        if(busy)return;
+        sessionNotes="";busy=true;publish(d->{d.setHistory("");d.stage("Проверка соединения…","Подключение к серверу…");});
+        worker.execute(()->{
+            try{
+                Release release=readRelease();
                 long installed=a.getPackageManager().getPackageInfo(a.getPackageName(),0).getLongVersionCode();
                 main.post(()->{
                     if(release.code<=installed){finish(d->d.current("MediaLAB "+BuildConfig.VERSION_NAME));}
