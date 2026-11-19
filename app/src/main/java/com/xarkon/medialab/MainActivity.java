@@ -243,7 +243,8 @@ public final class MainActivity extends Activity {
                 ffmpegChecked = true;
                 ffmpegDiagnostic = "Фоновый движок активен";
                 updateButtons();
-            } else initializeFfmpegAsync();
+            } else if(!ModuleDownloadService.isPaused(this)) initializeFfmpegAsync();
+            else {ffmpegDiagnostic="Докачка на паузе. Нажмите «Проверить / докачать FFmpeg».";setStatus(ffmpegDiagnostic,false);}
             if("com.xarkon.medialab.CHECK_OTA".equals(getIntent().getAction()))
                 ui.postDelayed(()->OtaUpdater.checkAndOffer(this,BLUE),550);
         } catch (Throwable startupError) {
@@ -465,11 +466,14 @@ public final class MainActivity extends Activity {
         Button restartLibrary=button("Перезапустить докачку FFmpeg с нуля",false);
         restartLibrary.setOnClickListener(v->{
             if(ffmpegReady){Toast.makeText(this,"Библиотека уже установлена. Повторная загрузка не нужна.",Toast.LENGTH_SHORT).show();return;}
-            NativeLibraryPack.restartPartialDownload();
-            if(ffmpegPreparing){Toast.makeText(this,"Запрошен перезапуск докачки с нуля.",Toast.LENGTH_SHORT).show();return;}
-            initializeFfmpegAsync();
+            try{ModuleDownloadService.request(this,ModuleDownloadService.RESTART);}
+            catch(RuntimeException ex){setStatus(formatFailure(ex),true);}
         });
         system.addView(restartLibrary,boxLp(-1,dp(46),2));
+        Button pauseLibrary=button("Приостановить докачку",false);
+        pauseLibrary.setOnClickListener(v->{if(ModuleDownloadService.running)ModuleDownloadService.request(this,ModuleDownloadService.PAUSE);});
+        system.addView(pauseLibrary,boxLp(-1,dp(46),2));
+        system.addView(txt("Пауза сохраняет загруженные байты. Докачка работает в фоне и отображается в уведомлении.",11,SECONDARY,false),boxLp(-1,-2,6));
 
         openSettingsDialog=new AlertDialog.Builder(this).setView(scroll).create();
         openSettingsDialog.setOnDismissListener(d->openSettingsDialog=null);
@@ -668,6 +672,7 @@ public final class MainActivity extends Activity {
         return s.mode==cfg.mode&&s.quality==cfg.quality&&s.performance==cfg.performance&&s.resolution==cfg.resolution&&s.bitrate==cfg.audioBitrate&&java.util.Objects.equals(s.format,cfg.format);
     }
     private void pollState() {
+        pollModuleDownload();
         ConversionService.Snapshot s = ConversionService.state;
         boolean wasBusy = busy;
         if(launchDeadline!=0&&(s.running||s.revision!=launchRevision||android.os.SystemClock.elapsedRealtime()>=launchDeadline))launchDeadline=0;
@@ -755,43 +760,24 @@ public final class MainActivity extends Activity {
     }
 
     private void initializeFfmpegAsync() {
-        if(ffmpegPreparing || ffmpegReady || isFinishing() || isDestroyed())return;
-        ffmpegPreparing=true;ffmpegChecked=false;
-        updateButtons();
-        executor.execute(() -> {
-            boolean working = false;
-            String diagnostic;
-            try {
-                NativeLibraryPack.prepare(getApplicationContext(), message -> ui.post(() -> {
-                    ffmpegDiagnostic=message;
-                    if(!isDestroyed())setStatus(message,false);
-                }));
-                FFmpegSession test = FFmpegKit.executeWithArguments(new String[]{"-version"});
-                if (test == null || !ReturnCode.isSuccess(test.getReturnCode())) {
-                    throw new IllegalStateException("Тест FFmpeg -version не прошёл: " +
-                            (test == null ? "session=null" : test.getReturnCode()));
-                }
-                working = true;
-                diagnostic = "FFmpegKit готов. Тест '-version' выполнен успешно.";
-            } catch (Throwable ffmpegError) {
-                Log.e(TAG, "FFmpeg initialization failed", ffmpegError);
-                diagnostic = formatFailure(ffmpegError);
-            }
-            final boolean ok = working;
-            final String diagnosticText = diagnostic;
-            ui.post(() -> {
-                ffmpegPreparing=false;
-                if(isDestroyed())return;
-                ffmpegReady = ok;
-                ffmpegChecked = true;
-                ffmpegDiagnostic = diagnosticText;
-                setStatus(ok ? "Движок FFmpeg готов к обработке файлов" :
-                        "FFmpeg недоступен: " + diagnosticText, !ok);
-                updateButtons();
-                if (ok && !queue.isEmpty() && previewParts.isEmpty()) schedulePreview();
-                else if (!ok && !queue.isEmpty()) renderPreviews();
-            });
-        });
+        if(ffmpegReady || isFinishing() || isDestroyed())return;
+        if(ModuleDownloadService.running){ffmpegPreparing=true;updateButtons();return;}
+        ffmpegPreparing=true;ffmpegChecked=false;updateButtons();
+        try{ModuleDownloadService.request(this,ModuleDownloadService.START);}
+        catch(RuntimeException ex){ffmpegPreparing=false;ffmpegChecked=true;ffmpegDiagnostic=formatFailure(ex);setStatus(ffmpegDiagnostic,true);updateButtons();}
+    }
+    private void pollModuleDownload(){
+        if(ConversionService.state.running)return;
+        boolean wasReady=ffmpegReady;
+        String next=ModuleDownloadService.status;
+        boolean running=ModuleDownloadService.running,checked=ModuleDownloadService.checked,ready=ModuleDownloadService.ready;
+        if(!running&&!checked&&!ready&&!ModuleDownloadService.paused&&!ffmpegPreparing)return;
+        if(ffmpegPreparing!=running||ffmpegChecked!=checked||ffmpegReady!=ready||!next.equals(ffmpegDiagnostic)){
+            ffmpegPreparing=running;ffmpegChecked=checked;ffmpegReady=ready;ffmpegDiagnostic=next;
+            setStatus(next,checked&&!ready);updateButtons();
+            if(ready&&!wasReady&&!queue.isEmpty()&&previewParts.isEmpty())schedulePreview();
+            else if(checked&&!ready&&!queue.isEmpty())renderPreviews();
+        }
     }
 
     private void showEngineDiagnostics() {
