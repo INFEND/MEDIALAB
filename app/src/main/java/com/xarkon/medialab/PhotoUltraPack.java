@@ -48,7 +48,11 @@ final class PhotoUltraPack {
                 +" / "+ConvertEngine.humanBytes(s.bytes)+" · JPEGli + libwebp";
         }catch(Exception e){return "Модуль отсутствует в этой сборке";}
     }
-    static synchronized boolean loadInstalled(Context c){
+    static boolean loadInstalled(Context c){
+        if(loaded)return true;if(checked||PhotoModuleService.running)return false;
+        synchronized(PhotoUltraPack.class){return loadVerified(c);}
+    }
+    private static boolean loadVerified(Context c){
         if(loaded)return true;if(checked)return false;checked=true;
         try{
             Spec s=new Spec(c);File f=new File(dir(c,s),NAME);
@@ -69,7 +73,7 @@ final class PhotoUltraPack {
             meta.delete();
         }
         checked=false;
-        if(!loadInstalled(c))throw new IOException("Не удалось подключить JNI PHOTO ULTRA");
+        if(!loadVerified(c))throw new IOException("Не удалось подключить JNI PHOTO ULTRA");
         p.status("PHOTO ULTRA подключён");
     }
     static boolean encode(Context c,Bitmap bitmap,File out,String format,int quality){
