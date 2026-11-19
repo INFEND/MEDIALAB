@@ -107,7 +107,8 @@ final class SmartCompression {
     }
 
     // Decode with EXIF orientation, no resizing and no conversion of wide-gamut originals.
-    private static Bitmap bitmap(File f) throws IOException {
+    static Bitmap bitmap(Context ctx,File f) throws IOException {
+        if("jxl".equalsIgnoreCase(ext(f))){Bitmap b=PhotoExtraPack.decodeJxl(ctx,f);if(b==null)throw new IOException("JPEG XL: установите PHOTO EXTRA или проверьте формат (поддерживается SDR RGB 8 бит)");return b;}
         return ImageDecoder.decodeBitmap(ImageDecoder.createSource(f),(d,i,s)->{
             if(i.isAnimated() || (long)i.getSize().getWidth()*i.getSize().getHeight()>24_000_000L
                     || (i.getColorSpace()!=null && i.getColorSpace().isWideGamut()))
@@ -124,15 +125,27 @@ final class SmartCompression {
         boolean changed=!cfg.format.equals(normalizedImageExt(in));
         Bitmap a=null; Result best=null; File avifInput=null;
         try{
-            a=bitmap(in);
+            if(isUltra(cfg.quality)&&"png".equals(cfg.format)&&!changed&&PhotoExtraPack.loadInstalled(ctx)){
+                File out=ConvertEngine.outputTemp(ctx,"png");
+                try{
+                    status.update("ASC ULTRA · OxiPNG · сжатие без потерь");
+                    check(c);
+                    if(PhotoExtraPack.optimizePng(ctx,in,out,performance==3?4:6)&&out.length()>0&&out.length()<in.length()){
+                        check(c);Result result=new Result(out,"png",false);out=null;return result;
+                    }
+                    check(c);return null; // preserve the entire original if strict optimization is unavailable
+                }finally{if(out!=null)out.delete();}
+            }
+            a=bitmap(ctx,in);
             // Lossless candidate also protects alpha, text and line art.
             // An unsupported original-format encoder must never fall through to WebP.
-            if(!Arrays.asList("jpg","png","webp","avif","bmp","tiff","gif").contains(cfg.format))return null;
+            if(!Arrays.asList("jpg","png","webp","avif","bmp","tiff","gif","jxl").contains(cfg.format))return null;
             String[] formats={cfg.format};
             for(String fmt:formats){
                 int[] qualities=("png".equals(fmt)||"bmp".equals(fmt)||"tiff".equals(fmt)||"gif".equals(fmt))?new int[]{100}:a.hasAlpha()?new int[]{100}:
                     performance==3?("avif".equals(fmt)?new int[]{94,98}:new int[]{84,94,98}):"avif".equals(fmt)?new int[]{94,98}:new int[]{84,94,98,100};
                 if(isUltra(cfg.quality)&&!a.hasAlpha()&&Arrays.asList("jpg","webp","avif").contains(fmt)) qualities="avif".equals(fmt)?new int[]{80,84,88,92,94,96,98,100}:new int[]{72,76,80,84,88,90,92,94,96,98,100};
+                if("jxl".equals(fmt))qualities=new int[]{88,92,96,98,100};
                 for(int q:qualities){
                     check(c);
                     if(isUltra(cfg.quality)&&("jpg".equals(fmt)||"webp".equals(fmt))&&PhotoUltraPack.loadInstalled(ctx)){
@@ -141,7 +154,7 @@ final class SmartCompression {
                             status.update("ASC ULTRA · "+("jpg".equals(fmt)?"JPEGli":"libwebp")+" · "+q);
                             if(PhotoUltraPack.encode(ctx,a,nativeOut,fmt,q)&&nativeOut.length()>0&&
                                 (changed||nativeOut.length()<in.length())&&(best==null||nativeOut.length()<best.file.length())){
-                                decoded=bitmap(nativeOut);
+                                decoded=bitmap(ctx,nativeOut);
                                 if(photoPass(a,decoded,performance,c)){
                                     if(best!=null)best.file.delete();
                                     best=new Result(nativeOut,fmt,false);nativeOut=null;
@@ -154,7 +167,9 @@ final class SmartCompression {
                     try{
                         status.update("ASC PRO · фото: "+fmt.toUpperCase(Locale.ROOT)+" "+q+" · контроль деталей");
                         boolean ok;
-                        if("avif".equals(fmt)||"bmp".equals(fmt)||"tiff".equals(fmt)||"gif".equals(fmt)){
+                        if("jxl".equals(fmt)){
+                            ok=PhotoExtraPack.encodeJxl(ctx,a,out,q);
+                        }else if("avif".equals(fmt)||"bmp".equals(fmt)||"tiff".equals(fmt)||"gif".equals(fmt)){
                             // The oriented bitmap is the reference; compare dimensions and pixels after decode.
                             if(avifInput==null){
                                 avifInput=ConvertEngine.outputTemp(ctx,"png");
@@ -177,7 +192,7 @@ final class SmartCompression {
                             try(OutputStream stream=new FileOutputStream(out)){ok=a.compress(codec,q,stream);}
                         }
                         if(!ok || out.length()<=0 || (!changed && out.length()>=in.length()) || (best!=null && out.length()>=best.file.length()))continue;
-                        b=bitmap(out);
+                        b=bitmap(ctx,out);
                         if(!photoPass(a,b,performance,c))continue;
                         if(best!=null)best.file.delete();
                         best=new Result(out,fmt,false);out=null;
