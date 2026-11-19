@@ -35,7 +35,7 @@ import java.util.Locale;
 final class ConvertEngine {
     static final int IMAGE = 0, VIDEO = 1, AUDIO = 2, EXTRACT = 3;
     static final String[][] FORMATS = {
-            {"Исходный", "jpg", "png", "webp", "avif", "bmp", "tiff", "gif"},
+            {"Исходный", "jpg", "png", "webp", "avif", "bmp", "tiff", "gif", "jxl"},
             {"Исходный", "mp4", "mkv", "webm", "mov", "avi", "gif"},
             {"Исходный", "mp3", "m4a", "aac", "ogg", "opus", "flac", "wav", "wma", "aiff"},
             {"Исходный", "mp3", "m4a", "aac", "ogg", "opus", "flac", "wav", "wma", "aiff", "mka"}
@@ -639,9 +639,10 @@ final class ConvertEngine {
     }
 
     /** Destructive replacement is gated on a full successful decode, not merely file existence. */
-    static void verifyForReplacement(File result,int mode,MediaInfo source,Canceled canceled)throws IOException{
+    static void verifyForReplacement(Context ctx,File result,int mode,MediaInfo source,Canceled canceled)throws IOException{
         if(canceled.canceled())throw new IOException("Операция отменена");
         if(result==null||!result.isFile()||result.length()<=0)throw new IOException("Результат пуст");
+        if(mode==IMAGE&&"jxl".equals(extension(result.getName()))){Bitmap b=PhotoExtraPack.decodeJxl(ctx,result);if(b==null)throw new IOException("JPEG XL не декодируется; оригинал не изменён");b.recycle();return;}
         if(mode!=IMAGE&&source.durationMs>0){
             long actual=info(result).durationMs;
             if(actual<=0||Math.abs(actual-source.durationMs)>Math.max(500,source.durationMs/50))
@@ -692,6 +693,7 @@ final class ConvertEngine {
                 case "png": return "image/png";
                 case "webp": return "image/webp";
                 case "avif": return "image/avif";
+                case "jxl": return "image/jxl";
                 case "bmp": return "image/bmp";
                 case "tiff": return "image/tiff";
                 case "gif": return "image/gif";
