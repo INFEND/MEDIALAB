@@ -210,6 +210,7 @@ public final class PreviewActivity extends Activity {
         try(InputStream stream=getContentResolver().openInputStream(uri)) {
             BitmapFactory.Options opts=new BitmapFactory.Options();opts.inJustDecodeBounds=true;
             BitmapFactory.decodeStream(stream,null,opts);
+            if(opts.outWidth<=0||opts.outHeight<=0)return PhotoExtraPack.decodeUri(this,uri,1600);
             int size=1;while(Math.max(opts.outWidth,opts.outHeight)/size>1600)size*=2;
             opts.inSampleSize=size;opts.inJustDecodeBounds=false;
             try(InputStream again=getContentResolver().openInputStream(uri)){
