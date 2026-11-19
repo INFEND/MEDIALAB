@@ -24,7 +24,7 @@ final class AscVideoOptions {
         return result.toArray(new String[0]);
     }
     static String[] ultraCodecs(Set<String> available){
-        String[] preferred={"svt_native","libsvtav1","libaom-av1","libx265","libkvazaar","libvpx-vp9","av1_mediacodec","hevc_mediacodec","h264_mediacodec","libx264","libopenh264"};
+        String[] preferred={"svt_native","libsvtav1","libaom-av1","libkvazaar","libvpx-vp9","av1_mediacodec","hevc_mediacodec","h264_mediacodec","libopenh264"};
         if(available.isEmpty())return new String[]{"libaom-av1","libvpx-vp9","hevc_mediacodec","h264_mediacodec"};
         ArrayList<String> result=new ArrayList<>();
         for(String codec:preferred)if(available.contains(codec))result.add(codec);
@@ -33,8 +33,7 @@ final class AscVideoOptions {
     // Conservative presets, not a visual-quality guarantee. No video quality scoring.
     static int ultraQuality(String codec){
         if(hardware(codec))return 80;
-        if("libx264".equals(codec))return 19;
-        if("libx265".equals(codec)||"libkvazaar".equals(codec))return 21;
+        if("libkvazaar".equals(codec))return 21;
         if("libopenh264".equals(codec))return 85;
         if("svt_native".equals(codec)||"libsvtav1".equals(codec)||"libaom-av1".equals(codec))return 23;
         return 22;
@@ -79,8 +78,6 @@ final class AscVideoOptions {
             Collections.addAll(args,"-b:v:0",String.valueOf(hardwareRate(sourceRate,quality)),"-allow_skip_frames","0","-pix_fmt","yuv420p");
         }else if("libsvtav1".equals(codec)){
             Collections.addAll(args,"-crf",String.valueOf(quality),"-preset",performance==3?"8":"6");
-        }else if("libx265".equals(codec)||"libx264".equals(codec)){
-            Collections.addAll(args,"-crf",String.valueOf(quality),"-preset",performance==3?"fast":"medium");
         }else if("mpeg4".equals(codec)){
             Collections.addAll(args,"-q:v:0",String.valueOf(quality),"-pix_fmt","yuv420p");
         }else throw new IllegalArgumentException("Unsupported ASC encoder: "+codec);
