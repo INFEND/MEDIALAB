@@ -18,7 +18,7 @@ for tag in 1.3.68 1.3.69; do
   fi
 done
 if [[ "$FOUND" == 0 ]]; then
-  if [[ "$VERSION" != "1.3.68" && "$VERSION" != "1.3.68" && "$VERSION" != "1.3.69" ]]; then
+  if [[ "$VERSION" != "1.3.68" && "$VERSION" != "1.3.69" ]]; then
     echo "Missing published video-ultra package; add a new approved release location before rebuilding"; exit 1
   fi
   URL="https://github.com/INFEND/MEDIALAB/releases/download/v$VERSION/video-ultra-arm64-v1.so"
@@ -40,6 +40,11 @@ if [[ "$FOUND" == 0 ]]; then
   TC="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
   CC="$TC/bin/aarch64-linux-android29-clang"
   CXX="$TC/bin/aarch64-linux-android29-clang++"
+  # SVT overrides CMake archive commands with bare llvm-ar/llvm-ranlib names.
+  # Resolve those to the same pinned Android NDK as the compiler.
+  export PATH="$TC/bin:$PATH"
+  test "$(command -v llvm-ar)" = "$TC/bin/llvm-ar"
+  test "$(command -v llvm-ranlib)" = "$TC/bin/llvm-ranlib"
   cmake -S "$SVT" -B "$OUT/svt-build" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
     -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static \
