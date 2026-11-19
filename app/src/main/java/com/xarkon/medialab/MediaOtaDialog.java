@@ -125,7 +125,7 @@ public final class MediaOtaDialog {
  public void dismiss(){dialog.dismiss();}
  public boolean isShowing(){return dialog.isShowing();}
  public boolean canLaunchInstaller(){Window w=dialog.getWindow();return dialog.isShowing()&&w!=null&&w.getDecorView().hasWindowFocus();}
- public boolean needsRefresh(){return state==State.CURRENT;}
+ public boolean needsRefresh(){return state==State.CURRENT||state==State.OFFER;}
  public void stage(String message,String hint){
   renderStage(State.CHECK,message,hint);
  }
