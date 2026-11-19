@@ -9,7 +9,14 @@ LICENSES="$OUT/photo-extra-licenses.txt"
 URL="https://github.com/INFEND/MEDIALAB/releases/download/v1.3.67/photo-extra-arm64-v1.so"
 mkdir -p "$ASSETS"
 VERSION="$(sed -n 's/.*versionName "\([^"]*\)".*/\1/p' app/build.gradle | head -1)"
-if [[ "$VERSION" == 1.3.67 ]]; then
+rm -f "$OUT/publish-with-1.3.68"
+if [[ "$VERSION" != 1.3.67 ]] && curl --fail --location --retry 2 --connect-timeout 15 --output "$PACK" "$URL"; then
+  : # Existing immutable asset keeps its URL and hash across OTA.
+elif [[ "$VERSION" == 1.3.67 || "$VERSION" == 1.3.68 ]]; then
+  if [[ "$VERSION" == 1.3.68 ]]; then
+    URL="${URL/v1.3.67/v1.3.68}"
+    touch "$OUT/publish-with-1.3.68"
+  fi
   mkdir -p "$OUT/src"
   JXL="$OUT/src/libjxl"
   if [[ ! -d "$JXL/.git" ]]; then git init -q "$JXL"; git -C "$JXL" remote add origin https://github.com/libjxl/libjxl.git; fi
@@ -59,6 +66,7 @@ for package in lock["package"]:
 PY
   } > "$LICENSES"
 else
+  URL="${URL/v1.3.67/v1.3.68}"
   curl --fail --location --retry 4 --output "$PACK" "$URL"
 fi
 python3 - "$PACK" "$ASSETS/photo-extra.json" "$URL" <<'PY'
