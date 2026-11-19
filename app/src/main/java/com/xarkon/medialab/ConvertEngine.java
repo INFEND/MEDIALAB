@@ -44,7 +44,7 @@ final class ConvertEngine {
 
     /** Resolve the per-file container, required for mixed original-format batches. */
     static String outputFormat(Config cfg, Source src) {
-        if(cfg.quality==SmartCompression.QUALITY && cfg.mode!=IMAGE) return cfg.mode==VIDEO?"mkv":"opus";
+        if(SmartCompression.isSmart(cfg.quality) && cfg.mode!=IMAGE) return cfg.mode==VIDEO?"mkv":"opus";
         if (!"Исходный".equals(cfg.format)) return cfg.format;
         if (cfg.mode == EXTRACT) return "m4a"; // audio-only output from a video container
         String ext = extension(src.name);
@@ -56,7 +56,7 @@ final class ConvertEngine {
         if ("3gp".equals(ext)) ext = "mp4";
         for (int i=1; i<FORMATS[cfg.mode].length; i++)
             if (FORMATS[cfg.mode][i].equals(ext)) return ext;
-        if(cfg.mode==IMAGE && cfg.quality==SmartCompression.QUALITY && !ext.isEmpty())return ext;
+        if(cfg.mode==IMAGE && SmartCompression.isSmart(cfg.quality) && !ext.isEmpty())return ext;
         throw new IllegalArgumentException("Исходный формат ."+ext+" не поддерживается кодировщиком. Выберите формат результата вручную.");
     }
 
@@ -67,7 +67,7 @@ final class ConvertEngine {
         return x;
     }
     static boolean smartImageFormatChange(Config cfg,Source src){
-        return cfg.mode==IMAGE&&cfg.quality==SmartCompression.QUALITY&&
+        return cfg.mode==IMAGE&&SmartCompression.isSmart(cfg.quality)&&
                 !outputFormat(cfg,src).equals(normalizedImageExtension(src.name));
     }
 
@@ -207,7 +207,7 @@ final class ConvertEngine {
     // Cheap prediction. This is *not* called a measured file size.
     // Video: same target bitrate expression as the actual encoder.
     static long quickEstimate(Source source, Config cfg, MediaInfo info) {
-        if(cfg.quality==SmartCompression.QUALITY){
+        if(SmartCompression.isSmart(cfg.quality)){
             if(cfg.mode==IMAGE&&smartImageFormatChange(cfg,source))return -1;
             return cfg.mode!=EXTRACT&&source.size>0?source.size:-1; // upper bound only when original may be preserved
         }
@@ -390,7 +390,7 @@ final class ConvertEngine {
         Runtime rt=Runtime.getRuntime();
         long free=Math.max(0,rt.maxMemory()-(rt.totalMemory()-rt.freeMemory()));
         long reserve=48L*1024*1024;
-        long perTask=(cfg.mode==IMAGE?(cfg.quality==SmartCompression.QUALITY?192L:64L):128L)*1024*1024;
+        long perTask=(cfg.mode==IMAGE?(SmartCompression.isSmart(cfg.quality)?192L:64L):128L)*1024*1024;
         int byMemory=(int)Math.max(1,Math.min(Integer.MAX_VALUE,(free-reserve)/perTask));
         return Math.max(1,Math.min(Math.min(requested,maxParallelWorkers()),byMemory));
     }
