@@ -6,10 +6,10 @@ OUT="$ROOT/.gradle/medialab-photo-ultra"
 ASSETS="$OUT/assets"
 PACK="$OUT/photo-ultra-arm64-v1.so"
 LICENSES="$OUT/photo-ultra-licenses.txt"
-URL="https://github.com/INFEND/MEDIALAB/releases/download/v1.3.66/photo-ultra-arm64-v1.so"
+URL="https://github.com/INFEND/MEDIALAB/releases/download/v1.3.67/photo-ultra-arm64-v1.so"
 mkdir -p "$ASSETS"
 VERSION="$(sed -n 's/.*versionName "\([^"]*\)".*/\1/p' app/build.gradle | head -1)"
-if [[ "$VERSION" == 1.3.66 ]]; then
+if [[ "$VERSION" == 1.3.67 ]]; then
   mkdir -p "$OUT/src"
   fetch() {
     local dir="$1" url="$2" rev="$3"
@@ -44,7 +44,7 @@ if [[ "$VERSION" == 1.3.66 ]]; then
   } > "$LICENSES"
 else
   curl --fail --location --retry 4 --output "$PACK" "$URL"
-  curl --fail --location --retry 4 --output "$LICENSES" "https://github.com/INFEND/MEDIALAB/releases/download/v1.3.66/photo-ultra-licenses.txt"
+  curl --fail --location --retry 4 --output "$LICENSES" "https://github.com/INFEND/MEDIALAB/releases/download/v1.3.67/photo-ultra-licenses.txt"
 fi
 python3 - "$PACK" "$ASSETS/photo-ultra.json" "$URL" <<'PY'
 import hashlib,json,pathlib,subprocess,sys,re
