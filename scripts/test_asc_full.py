@@ -25,3 +25,11 @@ with tempfile.TemporaryDirectory() as td:
         assert out.stat().st_size>0
         run('ffmpeg','-v','error','-xerror','-i',str(out),'-f','null','-')
         print(codec+': Java options encode/decode PASS')
+
+    for codec in ('libvpx-vp9','libaom-av1'):
+        options=run('java','-cp',str(tmp),main,codec,'ultra').splitlines()
+        out=tmp/('ultra-'+codec+'.mkv')
+        run('ffmpeg','-v','error','-y','-f','lavfi','-i','testsrc2=size=160x96:rate=24','-t','1','-c:v',codec,*options,'-threads','2',str(out))
+        assert out.stat().st_size>0
+        run('ffmpeg','-v','error','-xerror','-i',str(out),'-f','null','-')
+        print(codec+': ULTRA options encode/decode PASS')
