@@ -345,6 +345,8 @@ final class SmartCompression {
         if(!video && (audios<1 || (cfg.mode==ConvertEngine.AUDIO && (audios!=1 || mi.getStreams().size()!=1))))return null;
         // Exactly the same codec settings for the real 5-second sample and export.
         // A cached plan is keyed by URI, size, modification date and performance mode.
+        boolean nativeSvt=video&&isUltra(cfg.quality)&&VideoUltraPack.loadInstalled(ctx);
+        if(sourceKey!=null&&video)sourceKey+="|svt="+nativeSvt;
         Plan cached=plan(sourceKey);
         if(video&&preview&&cached!=null){
             status.update("ASC PRO · кодирование образца "+cached.codec);
@@ -367,7 +369,8 @@ final class SmartCompression {
             // A cached sample is not a guarantee for the entire video. Try other plans.
             if(!video&&cfg.mode!=ConvertEngine.EXTRACT)return null;
         }
-        Set<String> availableEncoders=video?ConvertEngine.videoEncoders():Collections.emptySet();
+        Set<String> availableEncoders=video?new HashSet<>(ConvertEngine.videoEncoders()):Collections.emptySet();
+        if(nativeSvt)availableEncoders.add("svt_native");
         String[] codecs=video?(isUltra(cfg.quality)?AscVideoOptions.ultraCodecs(availableEncoders):AscVideoOptions.codecs(availableEncoders,cfg.performance)):new String[]{"libopus","aac","flac"};
         if(video&&codecs.length==0){d.note("В установленном FFmpeg нет совместимых видеокодировщиков");return null;}
         if(video)android.util.Log.i("MediaLAB_ASC","Available ASC encoders: "+Arrays.toString(codecs));
@@ -527,6 +530,10 @@ final class SmartCompression {
         String fmt=video?"mkv":"libopus".equals(codec)?"opus":"aac".equals(codec)?"m4a":"flac";
         File out=ConvertEngine.outputTemp(ctx,fmt);
         try{
+            if(video&&"svt_native".equals(codec)){
+                if(!encodeNativeSvt(ctx,in,out,q,cfg.performance,start,length,c,d))return null;
+                Result result=new Result(out,fmt,false);out=null;return result;
+            }
             String n=String.valueOf(ConvertEngine.threads(cfg.performance));
             ArrayList<String> a=new ArrayList<>(Arrays.asList("-threads",n,"-filter_threads",n,"-filter_complex_threads",n));
             seek(a,start);Collections.addAll(a,"-i",in.getAbsolutePath());
@@ -554,6 +561,45 @@ final class SmartCompression {
             if(videoExec(c,d,(length==0?"Кодек ":"Проба ")+codec+" / "+q+(length==0?" · попытка "+d.fullAttempts:""),length>0?length:d.fullDurationMs,length==0?8:0,length==0?75:0,a.toArray(new String[0]))==null||out.length()<=0)return null;
             Result result=new Result(out,fmt,false);out=null;return result;
         }finally{if(out!=null)out.delete();}
+    }
+    /** Use an exact lossless sample for preview; full export streams from original without RAW files. */
+    private static boolean encodeNativeSvt(Context ctx,File input,File output,int q,int performance,
+            long start,long length,ConvertEngine.Canceled c,Diagnostics d)throws IOException{
+        if(!VideoUltraPack.loadInstalled(ctx))return false;
+        File sample=null;
+        try{
+            File source=input;
+            if(length>0){
+                ConvertEngine.MediaInfo info=ConvertEngine.info(input);
+                long pixels=Math.max(1L,(long)info.width*info.height);
+                long reserve=Math.min(8L*1024*1024*1024,Math.max(128L*1024*1024,pixels*480L));
+                sample=ConvertEngine.outputTemp(ctx,"mkv");
+                if(new android.os.StatFs(sample.getParent()).getAvailableBytes()<reserve){d.note("SVT-AV1: недостаточно места для образца");return false;}
+                String n=String.valueOf(ConvertEngine.threads(performance));
+                ArrayList<String> args=new ArrayList<>(Arrays.asList("-threads",n));
+                seek(args,start);Collections.addAll(args,"-i",input.getAbsolutePath(),"-ss","0");duration(args,length);
+                Collections.addAll(args,"-map","0:v:0","-map","0:a?","-c","copy","-c:v:0","ffv1","-level","3",
+                        "-pix_fmt","+","-fps_mode:v:0","passthrough","-threads",n,sample.getAbsolutePath());
+                if(videoExec(c,d,"SVT-AV1 · точный образец",length,0,0,args.toArray(new String[0]))==null||sample.length()<=0)return false;
+                source=sample;
+            }
+            check(c);
+            long total=length>0?length:d.fullDurationMs;
+            long limit=length>0?0:input.length()+1048576L;
+            long[] last={0};
+            int rc=VideoUltraPack.encode(ctx,source,output,q,performance,limit,(ms,frames)->{
+                if(c.canceled()||Thread.currentThread().isInterrupted())return false;
+                long now=android.os.SystemClock.elapsedRealtime();
+                if(now-last[0]>=800){
+                    last[0]=now;double fraction=total>0?Math.min(.99,ms/(double)total):0;
+                    if(d.status!=null)d.status.progress("ASC ULTRA · SVT-AV1 · "+clock(ms)+" / "+clock(total)+" · "+frames+" кадров",length>0?0:8+(int)(fraction*67));
+                }
+                return true;
+            });
+            check(c);
+            if(rc<0||output.length()<=0){d.nativeFailures++;d.note("SVT-AV1: "+rc+" (неподдерживаемый поток или ошибка кодирования)");return false;}
+            return true;
+        }finally{if(sample!=null)sample.delete();}
     }
     /** Structural check only: no frame comparison, quality scoring or second video encode. */
     private static boolean validVideo(File output,long expectedMs,int expectedAudio,Diagnostics d,ConvertEngine.Canceled c)throws IOException{
