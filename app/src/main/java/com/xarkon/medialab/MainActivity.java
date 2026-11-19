@@ -462,6 +462,14 @@ public final class MainActivity extends Activity {
         Button repair=button("Проверить / докачать FFmpeg",false);
         repair.setOnClickListener(v->{if(ffmpegReady)showEngineDiagnostics();else initializeFfmpegAsync();});
         system.addView(repair,boxLp(-1,dp(46),2));
+        Button restartLibrary=button("Перезапустить докачку FFmpeg с нуля",false);
+        restartLibrary.setOnClickListener(v->{
+            if(ffmpegReady){Toast.makeText(this,"Библиотека уже установлена. Повторная загрузка не нужна.",Toast.LENGTH_SHORT).show();return;}
+            if(ffmpegPreparing){Toast.makeText(this,"Дождитесь окончания текущей попытки или ошибки связи.",Toast.LENGTH_SHORT).show();return;}
+            NativeLibraryPack.restartPartialDownload();
+            initializeFfmpegAsync();
+        });
+        system.addView(restartLibrary,boxLp(-1,dp(46),2));
 
         openSettingsDialog=new AlertDialog.Builder(this).setView(scroll).create();
         openSettingsDialog.setOnDismissListener(d->openSettingsDialog=null);
