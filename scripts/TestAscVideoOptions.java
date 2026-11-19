@@ -25,9 +25,17 @@ public final class TestAscVideoOptions {
         }
         if(AscVideoOptions.estimateBytes(5000000,25000,100000)!=20000000L)throw new AssertionError("weighted estimate");
         if(AscVideoOptions.estimateBytes(0,25000,100000)!=-1)throw new AssertionError("empty estimate");
+        String[] ultra=AscVideoOptions.ultraCodecs(available);
+        if(!Arrays.equals(ultra,new String[]{"libaom-av1","libvpx-vp9","hevc_mediacodec","h264_mediacodec"}))throw new AssertionError(Arrays.toString(ultra));
+        Set<String> optional=new HashSet<>(Arrays.asList("libsvtav1","libx265","libx264"));
+        for(String codec:AscVideoOptions.ultraCodecs(optional)){
+            ArrayList<String> opts=new ArrayList<>();
+            AscVideoOptions.append(opts,codec,AscVideoOptions.ultraQuality(codec),10_000_000,3);
+            if(!opts.contains("-crf")||!opts.contains("-preset"))throw new AssertionError(opts);
+        }
         if(args.length>0){
             ArrayList<String> opts=new ArrayList<>();
-            AscVideoOptions.append(opts,args[0],4,10_000_000,3);
+            AscVideoOptions.append(opts,args[0],args.length>1?AscVideoOptions.ultraQuality(args[0]):4,10_000_000,3);
             for(String token:opts)System.out.println(token);
         }else System.out.println("ASC Full encoder selection: PASS");
     }
