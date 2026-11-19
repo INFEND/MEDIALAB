@@ -564,21 +564,30 @@ public final class MainActivity extends Activity {
     private void startFastEstimate() {
         int ticket = estimateTicket.incrementAndGet();
         if (queue.isEmpty()) return;
-        final ConvertEngine.Source source = queue.get(Math.min(selected, queue.size()-1));
+        final ArrayList<ConvertEngine.Source> sources = new ArrayList<>(queue);
         final ConvertEngine.Config cfg = config();
-        final String key = source.uri.toString();
-        ConvertEngine.MediaInfo cached = fastInfoCache.get(key);
-        fastEstimatedBytes = ConvertEngine.totalQuickEstimate(queue, cfg, cached, source.uri);
-        fastMetadataPending = cached == null && cfg.mode != ConvertEngine.IMAGE;
+        final java.util.HashMap<String,ConvertEngine.MediaInfo> infos = new java.util.HashMap<>();
+        for(ConvertEngine.Source source:sources){
+            String key=source.uri.toString();
+            ConvertEngine.MediaInfo cached=fastInfoCache.get(key);
+            if(cached!=null)infos.put(key,cached);
+        }
+        fastEstimatedBytes = ConvertEngine.totalQuickEstimate(sources,cfg,infos);
+        fastMetadataPending = cfg.mode != ConvertEngine.IMAGE && infos.size()<sources.size();
         renderPreviews();
         if (!fastMetadataPending) return;
         executor.execute(() -> {
-            ConvertEngine.MediaInfo info = ConvertEngine.info(this, source.uri);
+            for(ConvertEngine.Source source:sources){
+                if(ticket!=estimateTicket.get())return;
+                String key=source.uri.toString();
+                if(!infos.containsKey(key))infos.put(key,ConvertEngine.info(this,source.uri));
+            }
+            final long total=ConvertEngine.totalQuickEstimate(sources,cfg,infos);
             ui.post(() -> {
                 if (ticket != estimateTicket.get() || isFinishing() || isDestroyed()) return;
-                fastInfoCache.put(key, info);
+                fastInfoCache.putAll(infos);
                 fastMetadataPending = false;
-                fastEstimatedBytes = ConvertEngine.totalQuickEstimate(queue, cfg, info, source.uri);
+                fastEstimatedBytes = total;
                 renderPreviews();
             });
         });
@@ -1541,7 +1550,7 @@ public final class MainActivity extends Activity {
                 }
             } else {bytes=fastEstimatedBytes;tag="Предварительный прогноз";}
             estimateBox.addView(txt(tag,11,SECONDARY,true),boxLp(-1,-2,4));
-            estimateBox.addView(txt((mode!=ConvertEngine.IMAGE?"≈ ":"")+ConvertEngine.humanBytes(bytes),23,GREEN,true),boxLp(-1,-2,5));
+            estimateBox.addView(txt((mode!=ConvertEngine.IMAGE||queue.size()>1?"≈ ":"")+ConvertEngine.humanBytes(bytes),23,GREEN,true),boxLp(-1,-2,5));
             if (original>0 && bytes>0)estimateBox.addView(txt(reduction(original,bytes),12,SECONDARY,false));
             if (mode!=ConvertEngine.IMAGE)estimateBox.addView(txt(smartVideo?"Переменный битрейт: итог зависит от всех сцен. При смене кодека прогноз изменится.":"Значение приблизительное: размер всего файла может отличаться.",11,SECONDARY,false),boxLp(-1,-2,7));
             return;
@@ -1599,8 +1608,9 @@ public final class MainActivity extends Activity {
                 if(sourceBytes>0)prediction=Math.min(prediction,sourceBytes);
                 if(queue.size()>1){long original=ConvertEngine.totalSourceBytes(queue);if(original>0&&sourceBytes>0)prediction=original-sourceBytes+prediction;}
             }
+            if(!smartVideo && queue.size()>1)prediction=fastEstimatedBytes;
             if (estimateAmountLabel != null) {
-                estimateAmountLabel.setText("≈ " + ConvertEngine.humanBytes(prediction));
+                estimateAmountLabel.setText(prediction>0?"≈ " + ConvertEngine.humanBytes(prediction):"Размер неизвестен");
                 estimateAmountLabel.setTextColor(GREEN);
             }
             estimatePhaseLabel.setText("Обработка фрагмента · "+state.earlySampleCount+"/"+

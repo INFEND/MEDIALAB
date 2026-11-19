@@ -81,17 +81,24 @@ final class ConvertEngine {
         long sum=0;
         for(Source s:sources) {
             if(s.size<0)return -1;
-            sum = Math.addExact(sum,s.size);
+            if (sum > Long.MAX_VALUE - s.size) return -1;
+            sum += s.size;
         }
         return sum;
     }
 
     static long totalQuickEstimate(List<Source> sources,Config cfg,MediaInfo chosenInfo,Uri chosenUri) {
+        java.util.Map<String,MediaInfo> info = new java.util.HashMap<>();
+        if(chosenUri!=null && chosenInfo!=null) info.put(chosenUri.toString(),chosenInfo);
+        return totalQuickEstimate(sources,cfg,info);
+    }
+
+    static long totalQuickEstimate(List<Source> sources,Config cfg,java.util.Map<String,MediaInfo> info) {
         long sum=0;
         for(Source s:sources) {
             Config item;
             try {item=forSource(cfg,s);} catch(IllegalArgumentException ex){return -1;}
-            long estimate=quickEstimate(s,item,chosenUri!=null&&chosenUri.equals(s.uri)?chosenInfo:null);
+            long estimate=quickEstimate(s,item,info.get(s.uri.toString()));
             if(estimate<0 || sum>Long.MAX_VALUE-estimate)return -1;
             sum+=estimate;
         }
