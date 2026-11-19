@@ -11,11 +11,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class VideoUltraPack {
     private static final String NAME="libmedialab_video_ultra.so";
     private static final String URL="https://github.com/INFEND/MEDIALAB/releases/download/v1.3.68/video-ultra-arm64-v1.so";
+    private static boolean approvedUrl(String url){return URL.equals(url)||URL.replace("/v1.3.68/","/v1.3.68/").equals(url)||URL.replace("/v1.3.68/","/v1.3.69/").equals(url);}
     private static final AtomicBoolean restart=new AtomicBoolean();
     private static volatile boolean loaded;
     private static volatile boolean checked;
     private static final class Spec {
-        final long bytes;final String hash;
+        final long bytes;final String hash,url;
         Spec(Context c)throws Exception{
             ByteArrayOutputStream out=new ByteArrayOutputStream();
             try(InputStream in=c.getAssets().open("video-ultra.json")){
@@ -23,8 +24,8 @@ final class VideoUltraPack {
                 while((n=in.read(b))!=-1){if(out.size()+n>8192)throw new IOException("Некорректный манифест");out.write(b,0,n);}
             }
             JSONObject j=new JSONObject(out.toString("UTF-8"));
-            bytes=j.getLong("bytes");hash=j.getString("sha256");
-            if(j.getInt("api")!=1||!"arm64-v8a".equals(j.getString("abi"))||!URL.equals(j.getString("url"))||
+            bytes=j.getLong("bytes");hash=j.getString("sha256");url=j.getString("url");
+            if(j.getInt("api")!=1||!"arm64-v8a".equals(j.getString("abi"))||!approvedUrl(url)||
                 bytes<=0||bytes>64L*1024*1024||!hash.matches("[0-9a-f]{64}"))throw new IOException("Некорректный манифест VIDEO ULTRA");
         }
     }
@@ -64,7 +65,7 @@ final class VideoUltraPack {
         Spec s=new Spec(c);File d=dir(c,s),f=new File(d,NAME),part=new File(d,NAME+".part"),meta=new File(part.getPath()+".meta");
         if(!valid(f,s)){
             p.status("VIDEO ULTRA: докачка SVT-AV1");
-            ResumableModuleDownload.download(URL,"VIDEO ULTRA",part,s.bytes,restart,p);
+            ResumableModuleDownload.download(s.url,"VIDEO ULTRA",part,s.bytes,restart,p);
             if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Пауза");
             if(!valid(part,s)){part.delete();meta.delete();throw new IOException("SHA-256 VIDEO ULTRA не совпадает");}
             if(!part.setReadOnly())throw new IOException("Не удалось защитить библиотеку");
