@@ -465,8 +465,8 @@ public final class MainActivity extends Activity {
         Button restartLibrary=button("Перезапустить докачку FFmpeg с нуля",false);
         restartLibrary.setOnClickListener(v->{
             if(ffmpegReady){Toast.makeText(this,"Библиотека уже установлена. Повторная загрузка не нужна.",Toast.LENGTH_SHORT).show();return;}
-            if(ffmpegPreparing){Toast.makeText(this,"Дождитесь окончания текущей попытки или ошибки связи.",Toast.LENGTH_SHORT).show();return;}
             NativeLibraryPack.restartPartialDownload();
+            if(ffmpegPreparing){Toast.makeText(this,"Запрошен перезапуск докачки с нуля.",Toast.LENGTH_SHORT).show();return;}
             initializeFfmpegAsync();
         });
         system.addView(restartLibrary,boxLp(-1,dp(46),2));
