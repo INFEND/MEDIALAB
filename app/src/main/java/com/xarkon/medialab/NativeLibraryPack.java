@@ -17,6 +17,8 @@ public final class NativeLibraryPack {
     private static final long MAX=120L*1024*1024;
     private static File installed;
     private static Map<String,Entry> manifest;
+    private static final java.util.concurrent.atomic.AtomicBoolean restartRequested=new java.util.concurrent.atomic.AtomicBoolean();
+    public static void restartPartialDownload(){restartRequested.set(true);}
     private static final Set<String> loaded=new HashSet<>(),loading=new HashSet<>();
     private static class Entry {
         String name,hash;long size;List<String> deps=new ArrayList<>();
@@ -74,10 +76,14 @@ public final class NativeLibraryPack {
         File temp=new File(root,VERSION+"-staging"),archive=new File(root,VERSION+".zip.part");
         delete(temp);
         long total=0;for(Entry e:entries.values())total+=e.size;
-        if(new android.os.StatFs(root.getAbsolutePath()).getAvailableBytes()<total*2+16L*1024*1024)throw new IOException("Недостаточно места для библиотеки FFmpeg");
+        File meta=new File(archive.getPath()+".meta");
+        if(restartRequested.getAndSet(false)){delete(archive);delete(meta);}
+        if(new android.os.StatFs(root.getAbsolutePath()).getAvailableBytes()<total+Math.max(0L,total+2L*1024*1024-archive.length())+16L*1024*1024)throw new IOException("Недостаточно места для библиотеки FFmpeg");
+        boolean downloaded=false;
         try{
             progress.status("FFmpeg: докачка библиотеки "+VERSION+"…");
             download(archive,total+2L*1024*1024,progress);
+            downloaded=true;
             if(!temp.mkdir())throw new IOException("Не удалось создать временный каталог");
             Set<String> seen=new HashSet<>();
             try(ZipInputStream zip=new ZipInputStream(new BufferedInputStream(new FileInputStream(archive)))){
@@ -100,22 +106,95 @@ public final class NativeLibraryPack {
             delete(target);
             if(!temp.renameTo(target))throw new IOException("Не удалось установить библиотеку");
             installed=target;manifest=entries;
-        }finally{delete(temp);delete(archive);}
+        }finally{delete(temp);if(downloaded){delete(archive);delete(meta);}}
     }
+    // A partial file is retained across process death, OTA and temporary network errors.
+    // Only a verified complete archive reaches extraction. The manifest verifies every .so.
     private static void download(File f,long limit,Progress p)throws IOException{
-        HttpURLConnection conn=(HttpURLConnection)new URL(URL).openConnection();
-        conn.setConnectTimeout(20000);conn.setReadTimeout(30000);conn.setInstanceFollowRedirects(true);conn.setRequestProperty("User-Agent","MediaLAB-FFmpeg/1");
-        try{
-            if(conn.getResponseCode()!=200||!"https".equalsIgnoreCase(conn.getURL().getProtocol()))throw new IOException("Сервер библиотеки: HTTP "+conn.getResponseCode());
-            long total=conn.getContentLengthLong(),count=0,last=0;if(total>limit)throw new IOException("Слишком большой пакет");
-            try(InputStream in=new BufferedInputStream(conn.getInputStream());FileOutputStream out=new FileOutputStream(f)){
-                byte[] b=new byte[131072];int n;
-                while((n=in.read(b))!=-1){count+=n;if(count>limit)throw new IOException("Слишком большой пакет");out.write(b,0,n);
-                    long now=android.os.SystemClock.elapsedRealtime();
-                    if(now-last>300){last=now;p.status("FFmpeg: "+ConvertEngine.humanBytes(count)+(total>0?" / "+ConvertEngine.humanBytes(total)+" ("+(count*100/total)+"%)":""));}
+        IOException failure=null;
+        for(int attempt=0;attempt<4;attempt++){
+            try{downloadOnce(f,limit,p);return;}
+            catch(IOException e){
+                failure=e;
+                if(Thread.currentThread().isInterrupted())throw e;
+                if(attempt<3){
+                    p.status("FFmpeg: связь прервана, сохранено "+ConvertEngine.humanBytes(f.length())+"; повтор "+(attempt+1)+"/3");
+                    try{Thread.sleep(1000L<<attempt);}
+                    catch(InterruptedException stop){Thread.currentThread().interrupt();throw new InterruptedIOException("Докачка остановлена");}
                 }
-                if(count<=0||(total>0&&count!=total))throw new IOException("Загрузка прервана");
-                out.getFD().sync();
+            }
+        }
+        throw new IOException("Докачка прервана; сохранено "+ConvertEngine.humanBytes(f.length())+". Повторите загрузку.",failure);
+    }
+    private static void downloadOnce(File f,long limit,Progress p)throws IOException{
+        File meta=new File(f.getPath()+".meta");
+        Properties saved=new Properties();
+        if(meta.isFile()){
+            try(InputStream in=new FileInputStream(meta)){saved.load(in);}
+            catch(IOException|IllegalArgumentException bad){saved.clear();}
+        }
+        long offset=f.length(),expected=-1;
+        try{expected=Long.parseLong(saved.getProperty("total","-1"));}catch(NumberFormatException ignored){}
+        String validator=saved.getProperty("validator","");
+        if(offset>limit||!URL.equals(saved.getProperty("url"))||expected<=0||expected>limit||offset>expected){
+            delete(f);delete(meta);offset=0;expected=-1;validator="";
+        }
+        if(offset>0&&offset==expected){p.status("FFmpeg: архив загружен, проверка…");return;}
+        HttpURLConnection conn=(HttpURLConnection)new URL(URL).openConnection();
+        conn.setConnectTimeout(20000);conn.setReadTimeout(30000);conn.setInstanceFollowRedirects(true);
+        conn.setRequestProperty("User-Agent","MediaLAB-FFmpeg/2");
+        conn.setRequestProperty("Accept-Encoding","identity");
+        if(offset>0){
+            conn.setRequestProperty("Range","bytes="+offset+"-");
+            if(!validator.isEmpty())conn.setRequestProperty("If-Range",validator);
+        }
+        try{
+            int code=conn.getResponseCode();
+            if(!"https".equalsIgnoreCase(conn.getURL().getProtocol()))throw new IOException("Небезопасное перенаправление");
+            long total=conn.getContentLengthLong(),responseBytes=total;
+            String newValidator=conn.getHeaderField("ETag");
+            if(newValidator==null||newValidator.startsWith("W/"))newValidator=conn.getHeaderField("Last-Modified");
+            if(newValidator==null)newValidator="";
+            if(code==206&&offset>0){
+                String range=conn.getHeaderField("Content-Range");
+                java.util.regex.Matcher m=java.util.regex.Pattern.compile("bytes (\\d+)-(\\d+)/(\\d+)").matcher(range==null?"":range);
+                if(!m.matches()) {delete(f);delete(meta);throw new IOException("Неверный Content-Range");}
+                long start=Long.parseLong(m.group(1)),end=Long.parseLong(m.group(2));total=Long.parseLong(m.group(3));
+                if(start!=offset||end<start||end>=total||total!=expected||
+                   (responseBytes>=0&&responseBytes!=end-start+1)||
+                   (!validator.isEmpty()&&!newValidator.isEmpty()&&!validator.equals(newValidator))){
+                    delete(f);delete(meta);throw new IOException("Пакет изменился; загрузка начнётся заново");
+                }
+                responseBytes=end-start+1;
+            }else if(code==200){
+                // A server ignoring Range or changing the asset must never be appended to.
+                offset=0;delete(f);delete(meta);
+            }else if(code==416&&offset>0){
+                delete(f);delete(meta);throw new IOException("Диапазон устарел; загрузка начнётся заново");
+            }else throw new IOException("Сервер библиотеки: HTTP "+code);
+            if(total<=0||total>limit)throw new IOException("Неизвестный или неверный размер пакета");
+            Properties next=new Properties();next.setProperty("url",URL);next.setProperty("total",Long.toString(total));
+            next.setProperty("validator",newValidator.isEmpty()&&offset>0?validator:newValidator);
+            File tmp=new File(meta.getPath()+".tmp");
+            try(FileOutputStream out=new FileOutputStream(tmp)){next.store(out,null);out.getFD().sync();}
+            if(!tmp.renameTo(meta))throw new IOException("Не удалось сохранить состояние докачки");
+            long count=offset,last=0,lastSync=offset;
+            p.status("FFmpeg: "+ConvertEngine.humanBytes(count)+" / "+ConvertEngine.humanBytes(total)+" ("+(count*100/total)+"%)");
+            try(InputStream in=new BufferedInputStream(conn.getInputStream());RandomAccessFile out=new RandomAccessFile(f,"rw")){
+                if(out.length()!=offset)throw new IOException("Размер частичного файла изменился");
+                out.seek(offset);
+                try{
+                    byte[] b=new byte[131072];int n;
+                    while((n=in.read(b))!=-1){
+                        if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Докачка остановлена");
+                        if(count+n>total||count+n>limit)throw new IOException("Слишком большой пакет");
+                        out.write(b,0,n);count+=n;
+                        if(count-lastSync>=1024*1024){out.getFD().sync();lastSync=count;}
+                        long now=android.os.SystemClock.elapsedRealtime();
+                        if(now-last>300){last=now;p.status("FFmpeg: "+ConvertEngine.humanBytes(count)+" / "+ConvertEngine.humanBytes(total)+" ("+(count*100/total)+"%)");}
+                    }
+                }finally{out.getFD().sync();}
+                if(count!=total)throw new IOException("Загрузка прервана");
             }
         }finally{conn.disconnect();}
     }
