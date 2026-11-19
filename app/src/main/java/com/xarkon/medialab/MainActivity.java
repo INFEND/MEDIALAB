@@ -247,6 +247,7 @@ public final class MainActivity extends Activity {
             else {ffmpegDiagnostic="Докачка на паузе. Нажмите «Проверить / докачать FFmpeg».";setStatus(ffmpegDiagnostic,false);}
             if(PhotoModuleService.pending(this)&&!PhotoModuleService.running){try{PhotoModuleService.request(this,PhotoModuleService.START);}catch(RuntimeException ignored){}}
             if(PhotoExtraService.pending(this)&&!PhotoExtraService.running){try{PhotoExtraService.request(this,PhotoExtraService.START);}catch(RuntimeException ignored){}}
+            if(VideoUltraService.pending(this)&&!VideoUltraService.running){try{VideoUltraService.request(this,VideoUltraService.START);}catch(RuntimeException ignored){}}
             if("com.xarkon.medialab.CHECK_OTA".equals(getIntent().getAction()))
                 ui.postDelayed(()->OtaUpdater.checkAndOffer(this,BLUE),550);
         } catch (Throwable startupError) {
@@ -504,12 +505,27 @@ public final class MainActivity extends Activity {
         extraRestart.setOnClickListener(v->{try{PhotoExtraService.request(this,PhotoExtraService.RESTART);}catch(RuntimeException ex){extraModuleStatus.setText(formatFailure(ex));}});
         modules.addView(extraRestart,boxLp(-1,dp(46),2));
         modules.addView(txt("JPEG XL: непрозрачные SDR RGB 8 бит. OxiPNG: сжатие исходного PNG без потерь, с сохранением блоков метаданных.",11,SECONDARY,false),boxLp(-1,-2,8));
+        TextView videoModuleStatus=txt(VideoUltraPack.info(this),12,SECONDARY,false);
+        modules.addView(txt("VIDEO ULTRA · SVT-AV1",14,WHITE,true),boxLp(-1,-2,5));
+        modules.addView(videoModuleStatus,boxLp(-1,-2,8));
+        Button videoDownload=button("Скачать / продолжить VIDEO ULTRA",true);
+        videoDownload.setOnClickListener(v->{try{VideoUltraService.request(this,VideoUltraService.START);}catch(RuntimeException ex){videoModuleStatus.setText(formatFailure(ex));}});
+        modules.addView(videoDownload,boxLp(-1,dp(46),2));
+        Button videoPause=button("Пауза VIDEO ULTRA",false);
+        videoPause.setOnClickListener(v->{if(VideoUltraService.running)VideoUltraService.request(this,VideoUltraService.PAUSE);});
+        modules.addView(videoPause,boxLp(-1,dp(46),2));
+        Button videoRestart=button("Перезапустить VIDEO ULTRA с нуля",false);
+        videoRestart.setOnClickListener(v->{try{VideoUltraService.request(this,VideoUltraService.RESTART);}catch(RuntimeException ex){videoModuleStatus.setText(formatFailure(ex));}});
+        modules.addView(videoRestart,boxLp(-1,dp(46),2));
+        modules.addView(txt("SVT-AV1 · SDR 8 бит, YUV420P до 4096 × 4096. Полное видео кодируется потоком; неподдерживаемые источники обрабатывает основной движок.",11,SECONDARY,false),boxLp(-1,-2,8));
         Runnable photoRefresh=new Runnable(){public void run(){
             if(openSettingsDialog==null||!openSettingsDialog.isShowing())return;
             photoModuleStatus.setText(PhotoModuleService.running?PhotoModuleService.status:PhotoUltraPack.info(MainActivity.this)+(PhotoModuleService.status.isEmpty()?"":"\n"+PhotoModuleService.status));
             photoPause.setEnabled(PhotoModuleService.running);
             extraModuleStatus.setText(PhotoExtraService.running?PhotoExtraService.status:PhotoExtraPack.info(MainActivity.this)+(PhotoExtraService.status.isEmpty()?"":"\n"+PhotoExtraService.status));
             extraPause.setEnabled(PhotoExtraService.running);
+            videoModuleStatus.setText(VideoUltraService.running?VideoUltraService.status:VideoUltraPack.info(MainActivity.this)+(VideoUltraService.status.isEmpty()?"":"\n"+VideoUltraService.status));
+            videoPause.setEnabled(VideoUltraService.running);
             ui.postDelayed(this,500);
         }};
         openSettingsDialog=new AlertDialog.Builder(this).setView(scroll).create();
