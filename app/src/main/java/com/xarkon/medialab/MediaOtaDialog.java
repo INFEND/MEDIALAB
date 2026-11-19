@@ -71,7 +71,16 @@ public final class MediaOtaDialog {
   root.addView(detail,dlp);
   history=new ScrollView(a);history.setBackground(bg(light?0xfff3f6f9:0xff0c0f12,light?0xffdce4ed:mode==1?0xff303036:0xff304252));
   notes=label("",13,fg);notes.setPadding(dp(13),dp(12),dp(13),dp(13));notes.setLineSpacing(dp(4),1f);
-  history.setVerticalScrollBarEnabled(false);history.addView(notes);LinearLayout.LayoutParams hlp=new LinearLayout.LayoutParams(-1,dp(172));
+  history.setVerticalScrollBarEnabled(false);
+  history.setOnTouchListener((v,event)->{
+   int action=event.getActionMasked();
+   if(action==android.view.MotionEvent.ACTION_DOWN||action==android.view.MotionEvent.ACTION_MOVE)
+    v.getParent().requestDisallowInterceptTouchEvent(true);
+   else if(action==android.view.MotionEvent.ACTION_UP||action==android.view.MotionEvent.ACTION_CANCEL)
+    v.getParent().requestDisallowInterceptTouchEvent(false);
+   return false;
+  });
+  history.addView(notes);LinearLayout.LayoutParams hlp=new LinearLayout.LayoutParams(-1,dp(172));
   hlp.topMargin=dp(15);root.addView(history,hlp);history.setVisibility(View.GONE);
   LinearLayout numbers=new LinearLayout(a);numbers.setGravity(Gravity.CENTER_VERTICAL);
   LinearLayout.LayoutParams nlp=new LinearLayout.LayoutParams(-1,-2);nlp.topMargin=dp(22);
