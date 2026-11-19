@@ -165,7 +165,7 @@ final class ConvertEngine {
         if (mime.startsWith("image/")) return IMAGE;
         if (mime.startsWith("video/")) return VIDEO;
         if (among(ext, "jpg", "jpeg", "jpe", "png", "webp", "avif", "bmp", "tif", "tiff", "gif",
-                "heic", "heif", "dng", "cr2", "nef", "arw", "raf", "orf")) return IMAGE;
+                "jxl", "heic", "heif", "dng", "cr2", "nef", "arw", "raf", "orf")) return IMAGE;
         if (among(ext, "mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "wma", "aiff",
                 "aif", "mka", "alac", "ape", "amr", "mid", "midi")) return AUDIO;
         if (among(ext, "mp4", "mkv", "webm", "mov", "avi", "3gp", "m4v", "flv", "wmv", "ts",
