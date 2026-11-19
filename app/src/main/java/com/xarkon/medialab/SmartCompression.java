@@ -377,7 +377,7 @@ final class SmartCompression {
     private static Result searchCandidates(Context ctx,File original,File sampleInput,ConvertEngine.Config cfg,
             ConvertEngine.MediaInfo inf,boolean preview,String sourceKey,ConvertEngine.Canceled c,Status status,
             Diagnostics d,boolean video,String[] codecs,long bitrate,long probeStart,long probeLength)throws IOException{
-        if(video&&isUltra(cfg.quality))return searchUltraVideo(ctx,original,sampleInput,cfg,inf,preview,sourceKey,c,status,d,codecs,bitrate,probeStart,probeLength);
+        if(isUltra(cfg.quality))return searchUltra(ctx,original,sampleInput,cfg,inf,preview,sourceKey,c,status,d,video,codecs,bitrate,probeStart,probeLength);
         for(String codec:codecs){
             if(d.failedHardware.contains(codec))continue;
             int[] steps=video?AscVideoOptions.steps(codec,cfg.performance):
@@ -421,29 +421,32 @@ final class SmartCompression {
     }
     /** Encode real samples with different codecs; rank by size at conservative settings.
      * Video has structural checks only, not a visual comparison or second quality pass. */
-    private static Result searchUltraVideo(Context ctx,File original,File sampleInput,ConvertEngine.Config cfg,
+    private static Result searchUltra(Context ctx,File original,File sampleInput,ConvertEngine.Config cfg,
             ConvertEngine.MediaInfo inf,boolean preview,String sourceKey,ConvertEngine.Canceled c,Status status,
-            Diagnostics d,String[] codecs,long bitrate,long start,long length)throws IOException{
+            Diagnostics d,boolean video,String[] codecs,long bitrate,long start,long length)throws IOException{
         ArrayList<RankedPlan> ranked=new ArrayList<>();
         Result best=null;Plan bestPlan=null;
         try{
             for(String codec:codecs){
                 check(c);
                 if(d.failedHardware.contains(codec))continue;
-                int q=AscVideoOptions.ultraQuality(codec);
+                int[] qualities=video?new int[]{AscVideoOptions.ultraQuality(codec)}:"flac".equals(codec)?new int[]{5}:new int[]{160,192,256,320};
+                for(int q:qualities){
                 Plan p=new Plan(codec,q,bitrate);
                 status.update("ASC ULTRA · проба "+codec);
                 d.encodes++;
                 Result sample=encodeCandidate(ctx,sampleInput,cfg,codec,q,bitrate,start,length,c,d);
                 if(sample==null)continue;
                 try{
-                    if(!validVideo(sample.file,length,d.sourceAudioStreams,d,c))continue;
+                    if(video){if(!validVideo(sample.file,length,d.sourceAudioStreams,d,c))continue;}
+                    else {long actual=ConvertEngine.info(sample.file).durationMs;if(actual<=0||Math.abs(actual-length)>Math.max(350,length/100)||!audioPass(sampleInput,sample.file,start,length,c,"flac".equals(sample.format)))continue;}
                     ranked.add(new RankedPlan(p,sample.file.length()));
                     if(preview&&(best==null||sample.file.length()<best.file.length())){
                         if(best!=null)best.file.delete();
                         best=sample;bestPlan=p;sample=null;
                     }
                 }finally{if(sample!=null)sample.file.delete();}
+                }
             }
             if(preview&&best!=null){remember(sourceKey,bestPlan);Result result=best;best=null;return result;}
             ranked.sort(Comparator.comparingLong(p->p.bytes));
@@ -452,7 +455,7 @@ final class SmartCompression {
                 if(d.fullAttempts>=4)break;
                 d.fullAttempted=true;
                 status.update("ASC ULTRA · выбран "+entry.plan.codec);
-                Result result=encodeFull(ctx,original,cfg,inf,entry.plan,true,c,status,d);
+                Result result=encodeFull(ctx,original,cfg,inf,entry.plan,video,c,status,d);
                 if(result!=null){remember(sourceKey,entry.plan);return result;}
             }
             return null;
