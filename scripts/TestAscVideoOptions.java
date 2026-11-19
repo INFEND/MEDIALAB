@@ -30,6 +30,7 @@ public final class TestAscVideoOptions {
         if(!Arrays.equals(AscVideoOptions.ultraCodecs(Collections.singleton("svt_native")),new String[]{"svt_native"}))throw new AssertionError("native SVT selection");
         if(AscVideoOptions.ultraQuality("svt_native")!=23)throw new AssertionError("native SVT quality");
         Set<String> optional=new HashSet<>(Arrays.asList("libsvtav1","libx265","libx264"));
+        if(!Arrays.equals(AscVideoOptions.ultraCodecs(optional),new String[]{"libsvtav1"}))throw new AssertionError("GPL encoders excluded");
         for(String codec:AscVideoOptions.ultraCodecs(optional)){
             ArrayList<String> opts=new ArrayList<>();
             AscVideoOptions.append(opts,codec,AscVideoOptions.ultraQuality(codec),10_000_000,3);
