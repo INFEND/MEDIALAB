@@ -282,5 +282,9 @@
   {
     "versionCode": 92,
     "versionName": "1.3.70"
+  },
+  {
+    "versionCode": 93,
+    "versionName": "1.3.71"
   }
 ]
