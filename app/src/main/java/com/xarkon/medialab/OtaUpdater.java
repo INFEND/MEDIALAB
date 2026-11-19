@@ -223,7 +223,7 @@ public final class OtaUpdater {
                     throw new IOException("Не удалось создать папку OTA");
                 // Reuse a completed download after reopening the updater or recreating the Activity.
                 if(target.isFile() && target.length()==release.size){
-                    main.post(()->publish(d->d.stage("Проверка APK…","Проверяем ранее загруженное обновление")));
+                    main.post(()->publish(d->d.verifying("Проверка APK…","Проверяем ранее загруженное обновление")));
                     if(release.sha.equals(hash(target))){
                         PackageInfo cached=a.getPackageManager().getPackageArchiveInfo(target.getAbsolutePath(),0);
                         if(cached!=null && cached.getLongVersionCode()==release.code){
@@ -278,12 +278,12 @@ public final class OtaUpdater {
                     }finally{conn.disconnect();}
                 }
                 if(got!=release.size)throw new IOException("Загрузка прервана. Повторите для продолжения.");
-                main.post(()->publish(d->d.stage("Проверка SHA-256 APK…","Проверяем целостность загруженного файла")));
+                main.post(()->publish(d->d.verifying("Проверка SHA-256 APK…","Проверяем целостность загруженного файла")));
                 if(!release.sha.equals(hash(temp))){
                     temp.delete();
                     throw new IOException("SHA-256 APK не совпадает");
                 }
-                main.post(()->publish(d->d.stage("Проверка подписи APK…","Сверяем сертификат")));
+                main.post(()->publish(d->d.verifying("Проверка подписи APK…","Сверяем сертификат")));
                 PackageInfo archive=a.getPackageManager().getPackageArchiveInfo(temp.getAbsolutePath(),0);
                 if(archive==null||archive.getLongVersionCode()!=release.code){
                     temp.delete();throw new IOException("Версия APK не совпадает с манифестом");
@@ -299,7 +299,7 @@ public final class OtaUpdater {
     }
     private static void verifyAndInstall(Activity a,Release release,MediaOtaDialog ui){
         if(busy)return;
-        busy=true;publish(d->d.stage("Проверка APK…","Сверяем SHA-256 перед установкой"));
+        busy=true;publish(d->d.verifying("Проверка APK…","Сверяем SHA-256 перед установкой"));
         worker.execute(()->{
             try{
                 File apk=file(a);

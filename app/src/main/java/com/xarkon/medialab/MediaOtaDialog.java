@@ -125,9 +125,15 @@ public final class MediaOtaDialog {
  public void dismiss(){dialog.dismiss();}
  public boolean isShowing(){return dialog.isShowing();}
  public boolean canLaunchInstaller(){Window w=dialog.getWindow();return dialog.isShowing()&&w!=null&&w.getDecorView().hasWindowFocus();}
- public boolean needsRefresh(){return state==State.CURRENT||state==State.ERROR;}
+ public boolean needsRefresh(){return state==State.CURRENT;}
  public void stage(String message,String hint){
-  state=(message.toLowerCase(new Locale("ru")).contains("провер") && (message.toLowerCase(new Locale("ru")).contains("apk") || message.toLowerCase(new Locale("ru")).contains("подпис") || message.toLowerCase(new Locale("ru")).contains("sha"))) ? State.VERIFY : State.CHECK;
+  renderStage(State.CHECK,message,hint);
+ }
+ public void verifying(String message,String hint){
+  renderStage(State.VERIFY,message,hint);
+ }
+ private void renderStage(State next,String message,String hint){
+  state=next;
   title.setText("Обновление MediaLAB");stageLabel.setText(message);detail.setText(hint);ring.setChecking(dialog.isShowing());
   if(state==State.VERIFY){bytes.setContentDescription("Проверка целостности обновления");}else bytes.setContentDescription(null);
   receivedBytes=0L;expectedBytes=-1L;displayedBytes=0L;
