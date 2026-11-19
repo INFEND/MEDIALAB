@@ -96,8 +96,18 @@ if [[ "$FOUND" == 0 ]]; then
   mkdir -p "$OUT/relink"
   cp native/video-ultra/video_ultra.cpp scripts/build_video_ultra.sh "$OUT/video_ultra.o" "$OUT/relink/"
   cp "$FF/COPYING.LGPLv2.1" "$OUT/relink/FFmpeg-COPYING.LGPLv2.1"
-  cp "$SVT/LICENSE" "$OUT/relink/SVT-LICENSE"
-  cp "$SVT/PATENTS" "$OUT/relink/SVT-PATENTS"
+  # Upstream SVT-AV1 renamed its license file; preserve the actual license
+  # without failing after a successful native build.
+  SVT_LICENSE=""
+  for candidate in "$SVT/LICENSE" "$SVT/LICENSE.md" "$SVT/LICENSE.txt" "$SVT/COPYING"; do
+    if [[ -f "$candidate" ]]; then SVT_LICENSE="$candidate"; break; fi
+  done
+  if [[ -z "$SVT_LICENSE" ]]; then
+    echo "::error::SVT-AV1 license not found in pinned source checkout"
+    exit 1
+  fi
+  cp "$SVT_LICENSE" "$OUT/relink/SVT-LICENSE"
+  if [[ -f "$SVT/PATENTS" ]]; then cp "$SVT/PATENTS" "$OUT/relink/SVT-PATENTS"; fi
   git -C "$FF" archive --format=tar.gz --prefix=ffmpeg/ HEAD > "$OUT/relink/ffmpeg-source.tar.gz"
   git -C "$SVT" archive --format=tar.gz --prefix=svt-av1/ HEAD > "$OUT/relink/svt-source.tar.gz"
   cp "$NDK/NOTICE" "$OUT/relink/Android-NDK-NOTICE"
