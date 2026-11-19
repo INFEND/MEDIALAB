@@ -24,7 +24,7 @@ final class AscVideoOptions {
         return result.toArray(new String[0]);
     }
     static String[] ultraCodecs(Set<String> available){
-        String[] preferred={"libsvtav1","libaom-av1","libx265","libkvazaar","libvpx-vp9","av1_mediacodec","hevc_mediacodec","h264_mediacodec","libx264","libopenh264"};
+        String[] preferred={"svt_native","libsvtav1","libaom-av1","libx265","libkvazaar","libvpx-vp9","av1_mediacodec","hevc_mediacodec","h264_mediacodec","libx264","libopenh264"};
         if(available.isEmpty())return new String[]{"libaom-av1","libvpx-vp9","hevc_mediacodec","h264_mediacodec"};
         ArrayList<String> result=new ArrayList<>();
         for(String codec:preferred)if(available.contains(codec))result.add(codec);
@@ -36,7 +36,7 @@ final class AscVideoOptions {
         if("libx264".equals(codec))return 19;
         if("libx265".equals(codec)||"libkvazaar".equals(codec))return 21;
         if("libopenh264".equals(codec))return 85;
-        if("libsvtav1".equals(codec)||"libaom-av1".equals(codec))return 23;
+        if("svt_native".equals(codec)||"libsvtav1".equals(codec)||"libaom-av1".equals(codec))return 23;
         return 22;
     }
     /** Up to five non-overlapping samples. Long clips cover different scene complexity. */
