@@ -17,8 +17,10 @@ import java.net.URL;
 
 /** Safe background check: notification only, never silent APK installation. */
 public final class MediaOtaBackgroundJob extends JobService {
-    @Override public boolean onStartJob(JobParameters params) {
-        new Thread(()->{
+    private volatile Thread running;
+    @Override public synchronized boolean onStartJob(JobParameters params) {
+        if(running!=null)running.interrupt();
+        running=new Thread(()->{
             try {
                 OtaUpdater.Release release=OtaUpdater.readRelease();
                 long available=release.code;
@@ -39,10 +41,10 @@ public final class MediaOtaBackgroundJob extends JobService {
                     }
                 }
             }catch(Exception ignored){}
-            finally {if(!Thread.currentThread().isInterrupted())jobFinished(params,false);}
+            finally { synchronized(this){ if(running==Thread.currentThread()){ running=null; if(!Thread.currentThread().isInterrupted())jobFinished(params,false); } } }
         },"media-ota-check");
         running.start();
         return true;
     }
-    @Override public boolean onStopJob(JobParameters params){Thread t=running;if(t!=null)t.interrupt();return true;}
+    @Override public synchronized boolean onStopJob(JobParameters params){Thread t=running;running=null;if(t!=null)t.interrupt();return true;}
 }
