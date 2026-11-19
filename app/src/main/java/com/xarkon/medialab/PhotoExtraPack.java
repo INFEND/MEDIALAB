@@ -90,6 +90,33 @@ final class PhotoExtraPack {
         }catch(RuntimeException|LinkageError e){return false;}
         finally{if(rgba!=null&&rgba!=bitmap)rgba.recycle();}
     }
+    static boolean convertManual(Context c,File input,File out,ConvertEngine.Config cfg,ConvertEngine.Canceled canceled)throws IOException{
+        if(cfg.mode!=ConvertEngine.IMAGE)return false;
+        boolean fromJxl="jxl".equals(ConvertEngine.extension(input.getName())),toJxl="jxl".equals(cfg.format);
+        if(!fromJxl&&!toJxl)return false;
+        if(!loadInstalled(c))throw new IOException("Сначала скачайте PHOTO EXTRA в настройках");
+        if(canceled.canceled())throw new IOException("Операция отменена");
+        Bitmap bitmap=SmartCompression.bitmap(c,input);
+        File temp=null;
+        try{
+            if(toJxl){
+                if(!encodeJxl(c,bitmap,out,cfg.quality))throw new IOException("JPEG XL: поддерживаются непрозрачные SDR RGB 8 бит");
+                Bitmap verify=decodeJxl(c,out);
+                if(verify==null)throw new IOException("JPEG XL не прошёл декодирование");
+                try{if(verify.getWidth()!=bitmap.getWidth()||verify.getHeight()!=bitmap.getHeight())throw new IOException("Размеры JPEG XL не совпадают");}
+                finally{verify.recycle();}
+            }else{
+                temp=ConvertEngine.outputTemp(c,"png");
+                try(FileOutputStream stream=new FileOutputStream(temp)){if(!bitmap.compress(Bitmap.CompressFormat.PNG,100,stream))throw new IOException("PNG intermediate");}
+                if(!ConvertEngine.convertNativeImage(temp,out,cfg,canceled)){
+                    com.arthenica.ffmpegkit.FFmpegSession result=ConvertEngine.convert(temp,out,cfg,new ConvertEngine.MediaInfo(),0,0);
+                    if(result==null||!com.arthenica.ffmpegkit.ReturnCode.isSuccess(result.getReturnCode()))throw new IOException("Не удалось конвертировать JPEG XL");
+                }
+            }
+            if(canceled.canceled())throw new IOException("Операция отменена");
+            return out.isFile()&&out.length()>0;
+        }finally{bitmap.recycle();if(temp!=null)temp.delete();}
+    }
     static Bitmap decodeJxl(Context c,File input){
         if(!loadInstalled(c))return null;
         try{return nativeDecodeJxl(input.getAbsolutePath());}
