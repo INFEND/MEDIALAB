@@ -10,6 +10,9 @@ if(!original.isFile() || sha(original.bytes)!='40b52770a339af3bf8c02d8a9808c89b5
     throw new GradleException('Missing or invalid local FFmpeg AAR')
 def root=new File(rootProject.projectDir,'.gradle/medialab-engine-8.1.9');root.mkdirs()
 def assets=new File(root,'assets');assets.mkdirs()
+// Remove stale embedded payload from previous builds using the same Gradle cache.
+def stalePack=new File(assets,'ffmpeg-arm64-8.1.9.zip')
+if(stalePack.exists() && !stalePack.delete()) throw new GradleException('Cannot remove embedded FFmpeg payload')
 def thin=new File(root,'ffmpeg-java-only.aar')
 def pack=new File(root,'ffmpeg-arm64-8.1.9.zip')
 def libs=new TreeMap<String,byte[]>()
@@ -79,7 +82,6 @@ def needed={byte[] data ->
 def entries=libs.collect{name,data -> [name:name,bytes:data.length,sha256:sha(data),dependencies:needed(data).findAll{libs.containsKey(it)}]}
 new ZipOutputStream(new FileOutputStream(pack)).withCloseable{out -> libs.each{name,data -> put(out,name,data)}}
 new File(assets,'ffmpeg-pack.json').setText(JsonOutput.toJson([version:'8.1.9',abi:'arm64-v8a',url:'https://github.com/INFEND/MEDIALAB/releases/download/v1.3.27/ffmpeg-arm64-8.1.9.zip',files:entries]),'UTF-8')
-new File(assets,'ffmpeg-arm64-8.1.9.zip').bytes=pack.bytes
 ext.medialabEngineAar=thin
 ext.medialabEngineAssets=assets
-logger.lifecycle('MediaLAB: embedded ARM64 pack '+pack.length()+' bytes')
+logger.lifecycle('MediaLAB: separate ARM64 pack '+pack.length()+' bytes')

@@ -458,7 +458,7 @@ public final class MainActivity extends Activity {
         Button diagnostics=button("Диагностика FFmpeg",false);
         diagnostics.setOnClickListener(v->showEngineDiagnostics());
         system.addView(diagnostics,boxLp(-1,dp(46),2));
-        system.addView(txt("FFmpeg 8.1.9 · встроенная библиотека ARM64. Работает без докачки.",11,SECONDARY,false),boxLp(-1,-2,8));
+        system.addView(txt("FFmpeg 8.1.9 · отдельный ARM64 пакет. Сохраняется при OTA.",11,SECONDARY,false),boxLp(-1,-2,8));
         Button repair=button("Проверить / докачать FFmpeg",false);
         repair.setOnClickListener(v->{if(ffmpegReady)showEngineDiagnostics();else initializeFfmpegAsync();});
         system.addView(repair,boxLp(-1,dp(46),2));
