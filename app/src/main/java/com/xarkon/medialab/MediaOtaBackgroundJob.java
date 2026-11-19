@@ -20,23 +20,11 @@ public final class MediaOtaBackgroundJob extends JobService {
     @Override public boolean onStartJob(JobParameters params) {
         new Thread(()->{
             try {
-                URL u=new URL("https://github.com/INFEND/MEDIALAB/releases/latest/download/update.json");
-                HttpsURLConnection c=(HttpsURLConnection)u.openConnection();
-                c.setConnectTimeout(12000);c.setReadTimeout(16000);
-                ByteArrayOutputStream out=new ByteArrayOutputStream();
-                try(InputStream input=c.getInputStream()) {
-                    byte[] buffer=new byte[4096];int n;
-                    while((n=input.read(buffer))!=-1) {
-                        if(out.size()+n>OtaUpdater.MAX_MANIFEST_BYTES)throw new java.io.IOException("Invalid OTA manifest size");
-                        out.write(buffer,0,n);
-                    }
-                } finally {c.disconnect();}
-                JSONObject j=new JSONObject(out.toString("UTF-8"));
-                if(!"com.xarkon.medialab".equals(j.optString("packageName")))return;
-                long available=j.optLong("versionCode",0);
+                OtaUpdater.Release release=OtaUpdater.readRelease();
+                long available=release.code;
                 PackageInfo pkg=getPackageManager().getPackageInfo(getPackageName(),0);
-                if(available>pkg.getLongVersionCode() && available>getSharedPreferences(MediaOtaSchedule.PREF,0).getLong("last_notified",0)) {
-                    String name=j.optString("versionName","Новая версия");
+                if(!Thread.currentThread().isInterrupted() && available>pkg.getLongVersionCode() && available>getSharedPreferences(MediaOtaSchedule.PREF,0).getLong("last_notified",0)) {
+                    String name=release.name;
                     NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
                     if(nm!=null&&nm.areNotificationsEnabled()){
                         String channel="medialab_updates";
@@ -51,9 +39,10 @@ public final class MediaOtaBackgroundJob extends JobService {
                     }
                 }
             }catch(Exception ignored){}
-            finally {jobFinished(params,false);}
-        },"media-ota-check").start();
+            finally {if(!Thread.currentThread().isInterrupted())jobFinished(params,false);}
+        },"media-ota-check");
+        running.start();
         return true;
     }
-    @Override public boolean onStopJob(JobParameters params){return true;}
+    @Override public boolean onStopJob(JobParameters params){Thread t=running;if(t!=null)t.interrupt();return true;}
 }
