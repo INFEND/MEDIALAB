@@ -224,9 +224,14 @@ public final class OtaUpdater {
                     if(release.sha.equals(hash(target))){
                         PackageInfo cached=a.getPackageManager().getPackageArchiveInfo(target.getAbsolutePath(),0);
                         if(cached!=null && cached.getLongVersionCode()==release.code){
-                            checkSigner(a,target);
-                            main.post(()->finish(d->d.ready(release.name,()->withOwner((host,dialog)->verifyAndInstall(host,release,dialog)))));
-                            return;
+                            try {
+                                checkSigner(a,target);
+                                main.post(()->finish(d->d.ready(release.name,()->withOwner((host,dialog)->verifyAndInstall(host,release,dialog)))));
+                                return;
+                            } catch(Exception invalidCache) {
+                                // A cached APK must never trap Retry in the same invalid file.
+                                if(!target.delete())throw new IOException("Не удалось удалить повреждённый APK",invalidCache);
+                            }
                         }
                     }
                     // Reset VERIFY before reporting progress from a fresh transfer.
