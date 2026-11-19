@@ -226,7 +226,7 @@ public final class ConversionService extends Service {
         try {
             if (files.isEmpty()) throw new IllegalArgumentException("Не переданы исходные файлы");
             acquireWakeLock();
-            FFmpegKitConfig.enableStatisticsCallback(cfg.quality==SmartCompression.QUALITY?null:stat -> {
+            FFmpegKitConfig.enableStatisticsCallback(SmartCompression.isSmart(cfg.quality)?null:stat -> {
                 long total = activeClipMs;
                 if (total <= 0 || !state.running) return;
                 double portion = Math.min(0.99, Math.max(0.0, stat.getTime() / (double) total));
@@ -297,7 +297,7 @@ public final class ConversionService extends Service {
                     durationMs = info.durationMs;
                     long modified=ConvertEngine.modified(this,src.uri);
                     if(modified<=0&&direct!=null)modified=direct.file.lastModified();
-                    String sourceKey=modified>0&&src.size>0?src.uri+"|"+src.size+"|"+modified+"|"+itemCfg.mode+"|"+itemCfg.performance:null;
+                    String sourceKey=modified>0&&src.size>0?src.uri+"|"+src.size+"|"+modified+"|"+itemCfg.mode+"|"+itemCfg.performance+"|"+itemCfg.quality:null;
                     if (exporting || itemCfg.mode == ConvertEngine.IMAGE) {
                         segmentsCount = files.size(); segmentIndex = n;
                         activeClipMs = info.durationMs;
@@ -306,7 +306,7 @@ public final class ConversionService extends Service {
                             markFile("Конвертация " + (n+1) + "/" + files.size() + ": " + src.name, 0);
                             String actualFormat=itemCfg.format;
                             boolean keptOriginal=false;
-                            if(itemCfg.quality==SmartCompression.QUALITY){
+                            if(SmartCompression.isSmart(itemCfg.quality)){
                                 output.delete(); output=null;
                                 SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,!exporting,sourceKey,cancellation::get,SmartCompression.reporting((msg,percent)->markFile(msg,percent)));
                                 output=result.file;actualFormat=result.format;keptOriginal=result.original;
@@ -337,7 +337,7 @@ public final class ConversionService extends Service {
                         } finally { if (output != null && !output.equals(input)) output.delete(); }
                     } else {
                         final long clipMs = 5000;
-                        boolean smartVideo=itemCfg.mode==ConvertEngine.VIDEO&&itemCfg.quality==SmartCompression.QUALITY;
+                        boolean smartVideo=itemCfg.mode==ConvertEngine.VIDEO&&SmartCompression.isSmart(itemCfg.quality);
                         List<Long> positions = smartVideo?AscVideoOptions.sampleStarts(info.durationMs,clipMs):ConvertEngine.previewStarts(info.durationMs,clipMs);
                         final String previewKey=sourceKey!=null?sourceKey:(smartVideo?"preview:"+java.util.UUID.randomUUID():null);
                         if(info.durationMs<=0)throw new java.io.IOException("Не удалось определить длительность для центрального фрагмента");
@@ -354,7 +354,7 @@ public final class ConversionService extends Service {
                                     8 + 83 * p / Math.max(1, positions.size()));
                             File output = ConvertEngine.outputTemp(this, itemCfg.format);
                             try {
-                                if(itemCfg.quality==SmartCompression.QUALITY){
+                                if(SmartCompression.isSmart(itemCfg.quality)){
                                     output.delete();output=null;
                                     SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,start,length,true,previewKey,cancellation::get,SmartCompression.reporting((msg,percent)->markFile(msg,percent)));
                                     output=result.file;
@@ -535,10 +535,10 @@ public final class ConversionService extends Service {
             if(cancellation.get())return new ItemResult(false,"Отменено");
             ConvertEngine.MediaInfo info=itemCfg.mode==ConvertEngine.IMAGE?new ConvertEngine.MediaInfo():ConvertEngine.info(input);
             long modified=ConvertEngine.modified(this,src.uri);
-            String key=modified>0&&src.size>0?src.uri+"|"+src.size+"|"+modified+"|"+itemCfg.mode+"|"+itemCfg.performance:null;
+            String key=modified>0&&src.size>0?src.uri+"|"+src.size+"|"+modified+"|"+itemCfg.mode+"|"+itemCfg.performance+"|"+itemCfg.quality:null;
             String format=itemCfg.format;boolean kept=false;
             batchProgress(index,0,"Конвертация → "+format.toUpperCase(java.util.Locale.ROOT)+": "+src.name);
-            if(itemCfg.quality==SmartCompression.QUALITY){
+            if(SmartCompression.isSmart(itemCfg.quality)){
                 SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,false,key,cancellation::get,SmartCompression.reporting((msg,percent)->batchProgress(index,percent,msg+" · "+src.name)));
                 output=result.file;format=result.format;kept=result.original;
                 if(itemCfg.mode==ConvertEngine.VIDEO&&(kept||output.equals(input)||!result.verified||output.length()>=input.length()))
