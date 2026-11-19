@@ -163,8 +163,8 @@ public final class MainActivity extends Activity {
         perform(false);
     };
     private final int[] savedQuality = {70, 70, 70, 70};
-    private static final int[] QUALITY_STAGES={1,5,10,20,30,40,55,70,85,95,SmartCompression.QUALITY};
-    private static final String[] QUALITY_NAMES={"Экстремальное", "Минимальный объём", "Ультрасжатие", "Очень сильное", "Сильное", "Компактное", "Сбалансированное", "Хорошее", "Высокое", "Максимальное", "ASC PRO · Минимум веса / Максимум качества"};
+    private static final int[] QUALITY_STAGES={1,5,10,20,30,40,55,70,85,95,SmartCompression.QUALITY,SmartCompression.ULTRA};
+    private static final String[] QUALITY_NAMES={"Экстремальное", "Минимальный объём", "Ультрасжатие", "Очень сильное", "Сильное", "Компактное", "Сбалансированное", "Хорошее", "Высокое", "Максимальное", "ASC PRO · Минимум веса / Максимум качества", "ASC ULTRA · Максимум качества / Минимум веса"};
     private static int stageIndex(int quality) {
         int nearest=0;
         for(int i=1;i<QUALITY_STAGES.length;i++)
@@ -172,7 +172,7 @@ public final class MainActivity extends Activity {
         return nearest;
     }
     private static String qualityName(int level) {
-        return QUALITY_STAGES[level]==SmartCompression.QUALITY ? QUALITY_NAMES[level] : QUALITY_NAMES[level]+"  ["+QUALITY_STAGES[level]+"%]";
+        return SmartCompression.isSmart(QUALITY_STAGES[level]) ? QUALITY_NAMES[level] : QUALITY_NAMES[level]+"  ["+QUALITY_STAGES[level]+"%]";
     }
     private final int[] savedFormat = {3, 0, 0, 0};
     private final int[] savedResolution = {0, 0, 0, 0};
@@ -217,7 +217,7 @@ public final class MainActivity extends Activity {
         accentChoice = getPreferences(MODE_PRIVATE).getInt("accent", 0);
         performanceChoice = Math.max(0, Math.min(3, getPreferences(MODE_PRIVATE).getInt("performance_v2", 3)));
         for (int m = 0; m < 4; m++) {
-            savedQuality[m] = QUALITY_STAGES[stageIndex(getPreferences(MODE_PRIVATE).getInt("q"+m, 70))];
+            savedQuality[m] = QUALITY_STAGES[stageIndex(getPreferences(MODE_PRIVATE).getInt("q"+m, SmartCompression.ULTRA))];
             int previous=getPreferences(MODE_PRIVATE).getInt("f"+m, -1);
             savedFormat[m] = previous < 0 ? 0 : (getPreferences(MODE_PRIVATE).getBoolean("format_v2",false) ? previous : previous+1);
             savedFormat[m] = Math.max(0,Math.min(ConvertEngine.FORMATS[m].length-1,savedFormat[m]));
@@ -1000,7 +1000,7 @@ public final class MainActivity extends Activity {
                 savedQuality[mode]=QUALITY_STAGES[index];
                 if(qualityLabel!=null)qualityLabel.setText(qualityName(index));
                 // Bitrate remains adjustable independently, but follows the quality profile until overridden.
-                if(savedQuality[mode]!=SmartCompression.QUALITY)savedBitrate[mode] = Math.min(3,(index*4)/10);
+                if(!SmartCompression.isSmart(savedQuality[mode]))savedBitrate[mode] = Math.min(3,(index*4)/10);
                 updateButtons();
             }
             public void onStartTrackingTouch(SeekBar bar){}
@@ -1011,7 +1011,7 @@ public final class MainActivity extends Activity {
             }
         });
         settings.addView(qualitySeek,boxLp(-1,dp(45),6));
-        settings.addView(txt(mode==ConvertEngine.IMAGE?"10 ручных уровней + ASC PRO · выбранный формат, исходное разрешение и контроль качества.":mode==ConvertEngine.VIDEO?"10 ручных уровней + ASC PRO · автоформат, исходное разрешение, без сравнения качества.":"10 ручных уровней + ASC PRO · автоформат, исходное разрешение, проверка качества.",11,SECONDARY,false),boxLp(-1,-2,12));
+        settings.addView(txt(mode==ConvertEngine.IMAGE?"10 ручных уровней + ASC PRO / ASC ULTRA · выбранный формат, исходное разрешение и контроль качества.":mode==ConvertEngine.VIDEO?"10 ручных уровней + ASC PRO / ASC ULTRA · автоформат, исходное разрешение, без сравнения качества.":"10 ручных уровней + ASC PRO / ASC ULTRA · автоформат, исходное разрешение, проверка качества.",11,SECONDARY,false),boxLp(-1,-2,12));
         if (mode == ConvertEngine.VIDEO) {
             settings.addView(txt("Ограничение разрешения", 12, SECONDARY, true), boxLp(-1, -2, 6));
             resolutionSpinner = spinner(ConvertEngine.RESOLUTIONS, savedResolution[mode]);
@@ -1165,7 +1165,7 @@ public final class MainActivity extends Activity {
         return sp;
     }
     private ConvertEngine.Config config() {
-        if(savedQuality[mode]==SmartCompression.QUALITY) return new ConvertEngine.Config(mode,"Исходный",SmartCompression.QUALITY,0,2,performanceChoice);
+        if(SmartCompression.isSmart(savedQuality[mode])) return new ConvertEngine.Config(mode,mode==ConvertEngine.IMAGE?String.valueOf(formatSpinner.getSelectedItem()):"Исходный",savedQuality[mode],0,2,performanceChoice);
         return new ConvertEngine.Config(mode, String.valueOf(formatSpinner.getSelectedItem()),
                 qualitySeek == null ? savedQuality[mode] : QUALITY_STAGES[qualitySeek.getProgress()], resolutionSpinner == null ? 0 : resolutionSpinner.getSelectedItemPosition(),
                 bitrateSpinner == null ? 2 : bitrateSpinner.getSelectedItemPosition(), performanceChoice);
@@ -1493,14 +1493,14 @@ public final class MainActivity extends Activity {
             TextView reason=txt(ConversionService.state.status,11,SECONDARY,false);
             reason.setTextIsSelectable(true);
             estimateBox.addView(reason,boxLp(-1,-2,7));
-            if(mode==ConvertEngine.VIDEO && savedQuality[mode]==SmartCompression.QUALITY)
+            if(mode==ConvertEngine.VIDEO && SmartCompression.isSmart(savedQuality[mode]))
                 estimateBox.addView(txt("Можно скопировать причину отказа. Для просмотра без ASC PRO выберите ручной уровень качества.",11,SECONDARY,false),boxLp(-1,-2,6));
-            if (fastEstimatedBytes > 0) estimateBox.addView(txt((savedQuality[mode]==SmartCompression.QUALITY?"Верхняя граница ≤ ":"Предварительно ≈ ")+
+            if (fastEstimatedBytes > 0) estimateBox.addView(txt((SmartCompression.isSmart(savedQuality[mode])?"Верхняя граница ≤ ":"Предварительно ≈ ")+
                     ConvertEngine.humanBytes(fastEstimatedBytes),15,BLUE,true));
             return;
         }
         if (!previewParts.isEmpty() && previewSettings!=null) {
-            boolean smartVideo=mode==ConvertEngine.VIDEO&&previewSettings.quality==SmartCompression.QUALITY;
+            boolean smartVideo=mode==ConvertEngine.VIDEO&&SmartCompression.isSmart(previewSettings.quality);
             if(previewUnverified&&!smartVideo){
                 estimateBox.addView(txt("Качество фрагмента не подтверждено. Прогноз недоступен.",13,BLUE,true),boxLp(-1,-2,6));
                 return;
@@ -1508,7 +1508,7 @@ public final class MainActivity extends Activity {
             long bytes;
             String tag;
             if (mode==ConvertEngine.IMAGE) {
-                if(queue.size()==1) {bytes=sampleSize;tag=previewSettings.quality==SmartCompression.QUALITY?"Реальный проверенный результат":"Точный размер результата";}
+                if(queue.size()==1) {bytes=sampleSize;tag=SmartCompression.isSmart(previewSettings.quality)?"Реальный проверенный результат":"Точный размер результата";}
                 else {
                     long sourceBytes=queue.get(selected).size;
                     if(sourceBytes>0 && original>0 && sampleSize>0){
@@ -1531,7 +1531,7 @@ public final class MainActivity extends Activity {
             } else if (previewDurationMs>0 && previewSampledMs>0) {
                 bytes=(long)(sampleSize*Math.max(1.0,previewDurationMs/(double)previewSampledMs));
                 tag="Оценка по реальным фрагментам";
-                if(mode==ConvertEngine.VIDEO && previewSettings.quality==SmartCompression.QUALITY && original>0 && bytes>original){
+                if(mode==ConvertEngine.VIDEO && SmartCompression.isSmart(previewSettings.quality) && original>0 && bytes>original){
                     bytes=original;tag="ASC PRO · верхняя граница (исходный объём)";
                 }
             } else {bytes=fastEstimatedBytes;tag="Предварительный прогноз";}
@@ -1557,7 +1557,7 @@ public final class MainActivity extends Activity {
         text.addView(estimatePhaseLabel);text.addView(estimateHintLabel);
         estimateCard.addView(text,new LinearLayout.LayoutParams(0,-2,1));
         estimateBox.addView(estimateCard,boxLp(-1,-2,9));
-        boolean smart=savedQuality[mode]==SmartCompression.QUALITY;
+        boolean smart=SmartCompression.isSmart(savedQuality[mode]);
         boolean changedFormat=false;
         if(smart&&mode==ConvertEngine.IMAGE){
             ConvertEngine.Config cfg=config();
@@ -1574,10 +1574,10 @@ public final class MainActivity extends Activity {
         ConversionService.Snapshot state=ConversionService.state;
         boolean active=state.running && !state.exporting && !pendingAutoPreview &&
                 !queue.isEmpty() && queue.get(selected).uri.toString().equals(state.sourceKey);
-        boolean smartVideo=mode==ConvertEngine.VIDEO&&savedQuality[mode]==SmartCompression.QUALITY;
+        boolean smartVideo=mode==ConvertEngine.VIDEO&&SmartCompression.isSmart(savedQuality[mode]);
         if (active && state.previewUnverified && (!smartVideo||state.earlySampleCount==0)) {
             estimatePhaseLabel.setText(smartVideo?"Подготавливаем следующий фрагмент":"Проверяем качество фрагмента");
-            if(mode==ConvertEngine.VIDEO && savedQuality[mode]==SmartCompression.QUALITY){
+            if(mode==ConvertEngine.VIDEO && SmartCompression.isSmart(savedQuality[mode])){
                 long original=ConvertEngine.totalSourceBytes(queue);
                 estimateHintLabel.setText("Пока используем верхнюю границу размера");
                 if(estimateAmountLabel!=null){estimateAmountLabel.setText(original>0?"≤ "+ConvertEngine.humanBytes(original):"Размер неизвестен");estimateAmountLabel.setTextColor(BLUE);}
@@ -1842,7 +1842,7 @@ public final class MainActivity extends Activity {
         if(sourceAccessButton!=null)sourceAccessButton.setEnabled(!exportingNow);
         if(workersSeek!=null)workersSeek.setEnabled(!exportingNow);
         if (qualitySeek != null) qualitySeek.setEnabled(!exportingNow);
-        boolean smart=savedQuality[mode]==SmartCompression.QUALITY;
+        boolean smart=SmartCompression.isSmart(savedQuality[mode]);
         if (formatSpinner != null) formatSpinner.setEnabled(!exportingNow && (!smart || mode==ConvertEngine.IMAGE));
         if (resolutionSpinner != null) resolutionSpinner.setEnabled(!exportingNow && !smart);
         if (bitrateSpinner != null) bitrateSpinner.setEnabled(!exportingNow && !smart);
