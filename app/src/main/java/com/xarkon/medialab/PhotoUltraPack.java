@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Optional standalone JPEGli + libwebp ARM64 runtime; no FFmpeg symbols. */
 final class PhotoUltraPack {
     private static final String NAME="libmedialab_photo_ultra.so";
-    private static final String URL="https://github.com/INFEND/MEDIALAB/releases/download/v1.3.66/photo-ultra-arm64-v1.so";
+    private static final String URL="https://github.com/INFEND/MEDIALAB/releases/download/v1.3.67/photo-ultra-arm64-v1.so";
     private static final AtomicBoolean restart=new AtomicBoolean();
     private static volatile boolean loaded;
     private static volatile boolean checked;
