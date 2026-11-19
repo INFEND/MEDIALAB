@@ -59,6 +59,8 @@ if [[ "$FOUND" == 0 ]]; then
   test -f "$PREFIX/lib/pkgconfig/SvtAv1Enc.pc"
   pkg-config --modversion SvtAv1Enc
   pkg-config --cflags --libs --static SvtAv1Enc
+  # Static SVT-AV1 calls libm functions (log, exp, pow, tanh). FFmpeg configure
+  # performs a link probe, so libm must be linked during configure as well.
   pkg-config --exists "SvtAv1Enc >= 0.9.0" || { echo "SVT-AV1 pkg-config metadata missing or invalid"; exit 1; }
   mkdir -p "$OUT/ff-build"
   (
@@ -67,7 +69,7 @@ if [[ "$FOUND" == 0 ]]; then
       --enable-cross-compile --cc="$CC" --cxx="$CXX" --ar="$TC/bin/llvm-ar" \
       --nm="$TC/bin/llvm-nm" --ranlib="$TC/bin/llvm-ranlib" --strip="$TC/bin/llvm-strip" \
       --sysroot="$TC/sysroot" --pkg-config=pkg-config --pkg-config-flags=--static \
-      --extra-cflags="-I$PREFIX/include/svt-av1 -fPIC" --extra-ldflags="-L$PREFIX/lib -Wl,-z,max-page-size=16384" \
+      --extra-cflags="-I$PREFIX/include/svt-av1 -fPIC" --extra-ldflags="-L$PREFIX/lib -Wl,-z,max-page-size=16384 -lm" \
       --disable-autodetect --disable-network --disable-programs --disable-doc \
       --disable-avdevice --disable-avfilter --disable-swscale --disable-swresample \
       --disable-everything --enable-static --disable-shared --enable-pic \
