@@ -113,10 +113,16 @@ public final class NativeLibraryPack {
     private static void download(File f,long limit,Progress p)throws IOException{
         IOException failure=null;
         for(int attempt=0;attempt<4;attempt++){
-            try{downloadOnce(f,limit,p);return;}
+            try{
+                if(restartRequested.getAndSet(false)){delete(f);delete(new File(f.getPath()+".meta"));}
+                downloadOnce(f,limit,p);
+                if(restartRequested.get())throw new InterruptedIOException("Перезапуск докачки");
+                return;
+            }
             catch(IOException e){
                 failure=e;
                 if(Thread.currentThread().isInterrupted())throw e;
+                if(restartRequested.get()){attempt=-1;continue;}
                 if(attempt<3){
                     p.status("FFmpeg: связь прервана, сохранено "+ConvertEngine.humanBytes(f.length())+"; повтор "+(attempt+1)+"/3");
                     try{Thread.sleep(1000L<<attempt);}
@@ -186,7 +192,7 @@ public final class NativeLibraryPack {
                 try{
                     byte[] b=new byte[131072];int n;
                     while((n=in.read(b))!=-1){
-                        if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Докачка остановлена");
+                        if(Thread.currentThread().isInterrupted()||restartRequested.get())throw new InterruptedIOException("Докачка остановлена или перезапущена");
                         if(count+n>total||count+n>limit)throw new IOException("Слишком большой пакет");
                         out.write(b,0,n);count+=n;
                         if(count-lastSync>=1024*1024){out.getFD().sync();lastSync=count;}
