@@ -131,13 +131,27 @@ public final class MediaOtaDialog {
   WindowManager.LayoutParams p=w.getAttributes();p.dimAmount=.64f;p.gravity=Gravity.CENTER;
   p.width=Math.min(activity.getResources().getDisplayMetrics().widthPixels-dp(30),dp(450));
   p.height=-2;w.setAttributes(p);
-  // Keep actions reachable on short screens and at large font scales.
-  final int maxHeight=Math.max(dp(120),activity.getResources().getDisplayMetrics().heightPixels-dp(96));
+  constrainWindowHeight();
+ }
+ private void constrainWindowHeight(){
+  if(!dialog.isShowing())return;
+  Window w=dialog.getWindow();if(w==null)return;
   View content=w.findViewById(android.R.id.content);
-  if(content!=null)content.post(()->{
-   if(dialog.isShowing()&&content.getHeight()>maxHeight)w.setLayout(p.width,maxHeight);
+  if(content==null)return;
+  content.post(()->{
+   if(!dialog.isShowing())return;
+   int maxHeight=Math.max(dp(120),activity.getResources().getDisplayMetrics().heightPixels-dp(96));
+   View child=((android.view.ViewGroup)content).getChildAt(0);
+   if(child instanceof ScrollView){
+    View body=((ScrollView)child).getChildAt(0);
+    if(body!=null){
+     int desired=body.getHeight();
+     if(desired>0)w.setLayout(w.getAttributes().width,desired>maxHeight?maxHeight:WindowManager.LayoutParams.WRAP_CONTENT);
+    }
+   }
   });
  }
+
  public boolean matchesAppearance(int tint,int mode){return accent==tint&&themeMode==mode;}
  public void dismiss(){dialog.dismiss();}
  public boolean isShowing(){return dialog.isShowing();}
@@ -166,6 +180,8 @@ public final class MediaOtaDialog {
   if(changed)notes.setText(formatted);
   history.setVisibility(changes==null||changes.trim().isEmpty()?View.GONE:View.VISIBLE);
   if(changed)history.post(()->history.scrollTo(0,0));
+  // A newly populated journal can increase the window height after show().
+  constrainWindowHeight();
  }
  public void offer(String version,String changes,Runnable action){
   state=State.OFFER;
@@ -233,7 +249,7 @@ public final class MediaOtaDialog {
   displayedProgress=1000;
   ring.setChecking(false);
   progress.setIndeterminate(false);progress.setProgress(1000);ring.setProgressFraction(1f);
-  primary.setVisibility(View.GONE);history.setVisibility(View.GONE);secondary.setText("ЗАКРЫТЬ");
+  primary.setVisibility(View.GONE);history.setVisibility(View.GONE);constrainWindowHeight();secondary.setText("ЗАКРЫТЬ");
   bytes.setText("");percent.setText("");
  }
  public void fail(String message,Runnable retry){
