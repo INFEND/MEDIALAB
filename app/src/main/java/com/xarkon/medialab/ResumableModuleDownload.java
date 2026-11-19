@@ -16,6 +16,7 @@ final class ResumableModuleDownload {
         IOException failure=null;
         for(int attempt=0;attempt<4;attempt++){
             try{
+                if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Докачка остановлена");
                 if(restartRequested.getAndSet(false)){delete(f);delete(new File(f.getPath()+".meta"));}
                 downloadOnce(URL,label,f,limit,restartRequested,p);
                 if(restartRequested.get())throw new InterruptedIOException("Перезапуск докачки");
@@ -48,6 +49,8 @@ final class ResumableModuleDownload {
             delete(f);delete(meta);offset=0;expected=-1;validator="";
         }
         if(offset>0&&offset==expected){p.status(label+": архив загружен, проверка…");return;}
+        if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Докачка остановлена");
+        if(!"https".equalsIgnoreCase(new URL(URL).getProtocol()))throw new IOException("Требуется HTTPS");
         HttpURLConnection conn=(HttpURLConnection)new URL(URL).openConnection();
         conn.setConnectTimeout(20000);conn.setReadTimeout(30000);conn.setInstanceFollowRedirects(true);
         conn.setRequestProperty("User-Agent","MediaLAB-Modules/1");
@@ -81,12 +84,15 @@ final class ResumableModuleDownload {
                 delete(f);delete(meta);throw new IOException("Диапазон устарел; загрузка начнётся заново");
             }else throw new IOException("Сервер библиотеки: HTTP "+code);
             if(total<=0||total>limit)throw new IOException("Неизвестный или неверный размер пакета");
+            String encoding=conn.getHeaderField("Content-Encoding");
+            if(encoding!=null&&!"identity".equalsIgnoreCase(encoding))throw new IOException("Неожиданное кодирование ответа");
+            long responseEnd=responseBytes>=0?offset+responseBytes:total;
             Properties next=new Properties();next.setProperty("url",URL);next.setProperty("total",Long.toString(total));
             next.setProperty("validator",newValidator.isEmpty()&&offset>0?validator:newValidator);
             File tmp=new File(meta.getPath()+".tmp");
             try(FileOutputStream out=new FileOutputStream(tmp)){next.store(out,null);out.getFD().sync();}
             if(!tmp.renameTo(meta))throw new IOException("Не удалось сохранить состояние докачки");
-            long count=offset,last=0,lastSync=offset;
+            long count=offset,last=android.os.SystemClock.elapsedRealtime(),lastSync=offset,lastBytes=offset;
             p.status(label+": "+ConvertEngine.humanBytes(count)+" / "+ConvertEngine.humanBytes(total)+" ("+(count*100/total)+"%)");
             try(InputStream in=new BufferedInputStream(conn.getInputStream());RandomAccessFile out=new RandomAccessFile(f,"rw")){
                 if(out.length()!=offset)throw new IOException("Размер частичного файла изменился");
@@ -95,14 +101,16 @@ final class ResumableModuleDownload {
                     byte[] b=new byte[131072];int n;
                     while((n=in.read(b))!=-1){
                         if(Thread.currentThread().isInterrupted()||restartRequested.get())throw new InterruptedIOException("Докачка остановлена или перезапущена");
-                        if(count+n>total||count+n>limit)throw new IOException("Слишком большой пакет");
+                        if(count+n>total||count+n>limit||count+n>responseEnd)throw new IOException("Слишком большой пакет");
                         out.write(b,0,n);count+=n;
                         if(count-lastSync>=1024*1024){out.getFD().sync();lastSync=count;}
                         long now=android.os.SystemClock.elapsedRealtime();
-                        if(now-last>300){last=now;p.status(label+": "+ConvertEngine.humanBytes(count)+" / "+ConvertEngine.humanBytes(total)+" ("+(count*100/total)+"%)");}
+                        if(now-last>=500){long speed=(long)((count-lastBytes)*1000.0/Math.max(1,now-last));last=now;lastBytes=count;p.status(label+": "+ConvertEngine.humanBytes(count)+" / "+ConvertEngine.humanBytes(total)+" ("+(count*100/total)+"%) · "+ConvertEngine.humanBytes(speed)+"/с");}
                     }
                 }finally{out.getFD().sync();}
                 if(count!=total)throw new IOException("Загрузка прервана");
+                if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Докачка остановлена");
+                p.status(label+": "+ConvertEngine.humanBytes(count)+" / "+ConvertEngine.humanBytes(total)+" (100%) · проверка");
             }
         }finally{conn.disconnect();}
     }
