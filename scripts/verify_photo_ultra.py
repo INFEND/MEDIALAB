@@ -9,5 +9,5 @@ with zipfile.ZipFile(apk) as z:
 assert meta['api']==1 and meta['abi']=='arm64-v8a'
 assert meta['bytes']==pack.stat().st_size
 assert meta['sha256']==hashlib.sha256(pack.read_bytes()).hexdigest()
-assert meta['url']=='https://github.com/INFEND/MEDIALAB/releases/download/v1.3.66/photo-ultra-arm64-v1.so'
+assert meta['url']=='https://github.com/INFEND/MEDIALAB/releases/download/v1.3.67/photo-ultra-arm64-v1.so'
 print('Verified separate PHOTO ULTRA asset; APK contains metadata only')
