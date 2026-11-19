@@ -54,11 +54,16 @@ if [[ "$FOUND" == 0 ]]; then
   cmake --build "$OUT/svt-build" --parallel 4
   cmake --install "$OUT/svt-build"
   export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig"
-  unset PKG_CONFIG_PATH
+  export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+  export PKG_CONFIG_SYSROOT_DIR="/"
+  test -f "$PREFIX/lib/pkgconfig/SvtAv1Enc.pc"
+  pkg-config --modversion SvtAv1Enc
+  pkg-config --cflags --libs --static SvtAv1Enc
+  pkg-config --exists "SvtAv1Enc >= 0.9.0" || { echo "SVT-AV1 pkg-config metadata missing or invalid"; exit 1; }
   mkdir -p "$OUT/ff-build"
   (
     cd "$OUT/ff-build"
-    "$FF/configure" --prefix="$PREFIX" --target-os=android --arch=aarch64 \
+    if ! "$FF/configure" --prefix="$PREFIX" --target-os=android --arch=aarch64 \
       --enable-cross-compile --cc="$CC" --cxx="$CXX" --ar="$TC/bin/llvm-ar" \
       --nm="$TC/bin/llvm-nm" --ranlib="$TC/bin/llvm-ranlib" --strip="$TC/bin/llvm-strip" \
       --sysroot="$TC/sysroot" --pkg-config=pkg-config --pkg-config-flags=--static \
@@ -71,7 +76,11 @@ if [[ "$FOUND" == 0 ]]; then
       --enable-muxer=matroska \
       --enable-decoder=h264,hevc,av1,vp8,vp9,mpeg4,mpeg2video,ffv1,vc1,wmv3,mjpeg \
       --enable-parser=h264,hevc,av1,vp8,vp9,mpeg4video,mpegvideo,mjpeg,vc1,aac,ac3,opus \
-      --enable-libsvtav1 --enable-encoder=libsvtav1
+      --enable-libsvtav1 --enable-encoder=libsvtav1; then
+      echo "::error::FFmpeg configure failed; relevant config.log diagnostics:"
+      tail -n 160 ffbuild/config.log || true
+      exit 1
+    fi
     make -j4
     make install
   )

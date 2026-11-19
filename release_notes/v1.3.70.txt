@@ -1,0 +1,3 @@
+[=] VIDEO ULTRA: исправлено обнаружение SVT-AV1 через pkg-config при кросс-компиляции Android ARM64.
+[=] Добавлена ранняя проверка pkg-config и подробный вывод ошибок FFmpeg configure в GitHub Actions.
+[=] Облегчённый APK и отдельные нативные модули сохранены.
