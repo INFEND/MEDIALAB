@@ -8,7 +8,21 @@ PACK="$OUT/video-ultra-arm64-v1.so"
 URL="https://github.com/INFEND/MEDIALAB/releases/download/v1.3.68/video-ultra-arm64-v1.so"
 mkdir -p "$ASSETS"
 VERSION="$(sed -n 's/.*versionName "\([^"]*\)".*/\1/p' app/build.gradle | head -1)"
-if [[ "$VERSION" == 1.3.68 ]]; then
+rm -f "$OUT/publish-with-current"
+FOUND=0
+for tag in 1.3.68 1.3.69; do
+  if [[ "$tag" == "$VERSION" ]]; then continue; fi
+  CANDIDATE="https://github.com/INFEND/MEDIALAB/releases/download/v$tag/video-ultra-arm64-v1.so"
+  if curl --fail --location --retry 1 --connect-timeout 15 --output "$PACK" "$CANDIDATE"; then
+    URL="$CANDIDATE"; FOUND=1; break
+  fi
+done
+if [[ "$FOUND" == 0 ]]; then
+  if [[ "$VERSION" != "1.3.68" && "$VERSION" != "1.3.68" && "$VERSION" != "1.3.69" ]]; then
+    echo "Missing published video-ultra package; add a new approved release location before rebuilding"; exit 1
+  fi
+  URL="https://github.com/INFEND/MEDIALAB/releases/download/v$VERSION/video-ultra-arm64-v1.so"
+  touch "$OUT/publish-with-current"
   mkdir -p "$OUT/src"
   SVT="$OUT/src/svt-av1"
   FF="$OUT/src/ffmpeg"
@@ -73,8 +87,6 @@ if [[ "$VERSION" == 1.3.68 ]]; then
   cp "$NDK/NOTICE" "$OUT/relink/Android-NDK-NOTICE"
   cp "$OUT/ff-build/ffbuild/config.mak" "$OUT/relink/ffmpeg-config.mak"
   tar -C "$OUT/relink" -czf "$OUT/video-ultra-source-relink.tar.gz" .
-else
-  curl --fail --location --retry 4 --output "$PACK" "$URL"
 fi
 python3 - "$PACK" "$ASSETS/video-ultra.json" "$URL" <<'PY'
 import hashlib,json,pathlib,subprocess,sys,re
