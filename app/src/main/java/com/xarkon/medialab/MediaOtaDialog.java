@@ -171,6 +171,7 @@ public final class MediaOtaDialog {
   receivedBytes=0L;expectedBytes=-1L;displayedBytes=0L;
   progress.setIndeterminate(true);secondary.setText("СКРЫТЬ");
   primary.setVisibility(View.GONE);bytes.setText("");percent.setText("");
+  constrainWindowHeight();
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}displayedProgress=0;
   progress.setProgress(0);ring.setProgressFraction(0f);
  }
@@ -197,6 +198,7 @@ public final class MediaOtaDialog {
  public void downloading(long done,long total){
   if(done<0||state==State.VERIFY||state==State.READY||state==State.ERROR||state==State.CURRENT)return;
   // Ignore stale callbacks from an earlier transfer and keep progress monotonic.
+  // A server may supply the final length after an initially unknown total.
   if(state==State.DOWNLOAD && total>0 && expectedBytes>0 && total!=expectedBytes)return;
   if(state==State.DOWNLOAD && done<receivedBytes)return;
   receivedBytes=done;expectedBytes=total;
@@ -230,6 +232,7 @@ public final class MediaOtaDialog {
   displayedProgress=ratio;
   progress.setProgress(ratio);ring.setProgressFraction(ratio/1000f);
   percent.setText(ratio/10+"%");
+  bytes.setContentDescription(ConvertEngine.humanBytes(loaded)+" / "+ConvertEngine.humanBytes(total));
   bytes.setText(ConvertEngine.humanBytes(loaded)+" / "+ConvertEngine.humanBytes(total));
  }
 

@@ -74,13 +74,12 @@ public final class NativeLibraryPack {
         File temp=new File(root,VERSION+"-staging"),archive=new File(root,VERSION+".zip.part");
         delete(temp);
         long total=0;for(Entry e:entries.values())total+=e.size;
-        if(new android.os.StatFs(root.getAbsolutePath()).getAvailableBytes()<total*2+16L*1024*1024)throw new IOException("Недостаточно места для библиотеки FFmpeg");
+        if(new android.os.StatFs(root.getAbsolutePath()).getAvailableBytes()<total+16L*1024*1024)throw new IOException("Недостаточно места для библиотеки FFmpeg");
         try{
-            progress.status("FFmpeg: докачка библиотеки "+VERSION+"…");
-            download(archive,total+2L*1024*1024,progress);
+            progress.status("FFmpeg: подготовка встроенной библиотеки "+VERSION+"…");
             if(!temp.mkdir())throw new IOException("Не удалось создать временный каталог");
             Set<String> seen=new HashSet<>();
-            try(ZipInputStream zip=new ZipInputStream(new BufferedInputStream(new FileInputStream(archive)))){
+            try(ZipInputStream zip=new ZipInputStream(new BufferedInputStream(c.getAssets().open("ffmpeg-arm64-8.1.9.zip")))){
                 ZipEntry z;
                 while((z=zip.getNextEntry())!=null){
                     Entry e=entries.get(z.getName());

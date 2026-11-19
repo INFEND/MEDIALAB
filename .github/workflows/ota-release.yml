@@ -55,7 +55,7 @@ jobs:
             'https://github.com/ffmpegkit-maintained/ffmpeg/releases/download/v8.1.9-lts-android/ffmpeg-kit-full-8.1.9-arm64-v8a-x86_64.aar'
           echo '40b52770a339af3bf8c02d8a9808c89b5f0e0e56eca39c10dc76c01b90f32306  app/libs/ffmpeg-kit-full-8.1.9.aar' | sha256sum --check --status
           test "$(stat -c%s app/libs/ffmpeg-kit-full-8.1.9.aar)" -eq 31057330
-          echo 'Verified input; Java bridge only will be included in APK.'
+          echo 'Verified input; ARM64 runtime will be embedded and verified.'
 
       - name: Regression test central video sample with copied audio
         shell: bash
@@ -76,7 +76,7 @@ jobs:
             gradle --no-daemon --refresh-dependencies --stacktrace :app:assembleRelease
           fi
 
-      - name: Verify lightweight APK and external ARM64 pack
+      - name: Verify embedded ARM64 runtime
         shell: bash
         run: |
           set -euo pipefail
@@ -94,7 +94,7 @@ jobs:
         id: metadata
         run: python3 scripts/make_manifest.py
 
-      - name: Verify signed light APK and stage standalone library
+      - name: Verify signed APK with embedded runtime
         shell: bash
         run: |
           set -euo pipefail

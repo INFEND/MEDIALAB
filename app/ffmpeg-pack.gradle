@@ -79,6 +79,7 @@ def needed={byte[] data ->
 def entries=libs.collect{name,data -> [name:name,bytes:data.length,sha256:sha(data),dependencies:needed(data).findAll{libs.containsKey(it)}]}
 new ZipOutputStream(new FileOutputStream(pack)).withCloseable{out -> libs.each{name,data -> put(out,name,data)}}
 new File(assets,'ffmpeg-pack.json').setText(JsonOutput.toJson([version:'8.1.9',abi:'arm64-v8a',url:'https://github.com/INFEND/MEDIALAB/releases/download/v1.3.27/ffmpeg-arm64-8.1.9.zip',files:entries]),'UTF-8')
+new File(assets,'ffmpeg-arm64-8.1.9.zip').bytes=pack.bytes
 ext.medialabEngineAar=thin
 ext.medialabEngineAssets=assets
-logger.lifecycle('MediaLAB: separate ARM64 pack '+pack.length()+' bytes')
+logger.lifecycle('MediaLAB: embedded ARM64 pack '+pack.length()+' bytes')

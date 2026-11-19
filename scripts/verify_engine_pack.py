@@ -5,6 +5,7 @@ apk,pack=map(Path,sys.argv[1:])
 with zipfile.ZipFile(apk) as z:
     assert not any(n.startswith('lib/') and n.endswith('.so') for n in z.namelist()), 'Native payload in APK'
     manifest=json.loads(z.read('assets/ffmpeg-pack.json'))
+    assert hashlib.sha256(z.read('assets/ffmpeg-arm64-8.1.9.zip')).digest()==hashlib.sha256(pack.read_bytes()).digest(), 'Embedded runtime differs from verified pack'
 assert manifest['abi']=='arm64-v8a' and manifest['version']=='8.1.9'
 files={f['name']:f for f in manifest['files']}
 assert {'libffmpegkit.so','libffmpegkit_abidetect.so','libavcodec.so'} <= files.keys()
@@ -23,4 +24,4 @@ def visit(n,active,done):
     active.remove(n);done.add(n)
 done=set()
 for n in files:visit(n,set(),done)
-print('Verified light APK:',apk.stat().st_size,'bytes; external ARM64 runtime:',pack.stat().st_size,'bytes;',len(files),'libraries')
+print('Verified self-contained APK:',apk.stat().st_size,'bytes; external ARM64 runtime:',pack.stat().st_size,'bytes;',len(files),'libraries')
