@@ -27,6 +27,8 @@ public final class TestAscVideoOptions {
         if(AscVideoOptions.estimateBytes(0,25000,100000)!=-1)throw new AssertionError("empty estimate");
         String[] ultra=AscVideoOptions.ultraCodecs(available);
         if(!Arrays.equals(ultra,new String[]{"libaom-av1","libvpx-vp9","hevc_mediacodec","h264_mediacodec"}))throw new AssertionError(Arrays.toString(ultra));
+        if(!Arrays.equals(AscVideoOptions.ultraCodecs(Collections.singleton("svt_native")),new String[]{"svt_native"}))throw new AssertionError("native SVT selection");
+        if(AscVideoOptions.ultraQuality("svt_native")!=23)throw new AssertionError("native SVT quality");
         Set<String> optional=new HashSet<>(Arrays.asList("libsvtav1","libx265","libx264"));
         for(String codec:AscVideoOptions.ultraCodecs(optional)){
             ArrayList<String> opts=new ArrayList<>();
