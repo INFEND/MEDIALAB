@@ -15,7 +15,8 @@ import java.util.Locale;
 public final class MediaOtaDialog {
  private final Activity activity;
  private final Dialog dialog;
- private final TextView title,subtitle,stageLabel,detail,bytes,percent,notes,primary,secondary;
+ private final TextView title,subtitle,stageLabel,detail,bytes,percent,notes;
+ private final Button primary,secondary;
  private final ProgressBar progress;
  private final OtaRingView ring;
  private final ScrollView history;
@@ -36,6 +37,12 @@ public final class MediaOtaDialog {
  private TextView label(String s,int size,int color){
   TextView v=new TextView(activity);v.setText(s);v.setTextColor(color);
   v.setTextSize(size);v.setIncludeFontPadding(false);return v;
+ }
+ private Button actionButton(String text,int color){
+  Button v=new Button(activity,null,android.R.attr.borderlessButtonStyle);
+  v.setText(text);v.setTextColor(color);v.setTextSize(12);v.setIncludeFontPadding(false);
+  v.setAllCaps(false);v.setMinWidth(0);v.setMinimumWidth(0);v.setStateListAnimator(null);
+  v.setBackgroundColor(Color.TRANSPARENT);return v;
  }
  public MediaOtaDialog(Activity a,int tint){
   activity=a;accent=tint;int mode=a.getPreferences(0).getInt("theme",0);
@@ -81,10 +88,11 @@ public final class MediaOtaDialog {
   LinearLayout actions=new LinearLayout(a);actions.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
   LinearLayout.LayoutParams alp=new LinearLayout.LayoutParams(-1,-2);alp.topMargin=dp(24);
   root.addView(actions,alp);
-  secondary=label("ЗАКРЫТЬ",12,muted);secondary.setTypeface(null,Typeface.BOLD);secondary.setGravity(Gravity.CENTER);secondary.setPadding(dp(16),dp(14),dp(16),dp(14));
+  secondary=actionButton("ЗАКРЫТЬ",muted);secondary.setTypeface(null,Typeface.BOLD);secondary.setGravity(Gravity.CENTER);secondary.setPadding(dp(16),dp(14),dp(16),dp(14));
+  secondary.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf((tint&0x00ffffff)|0x33000000),bg(Color.TRANSPARENT,0,13),null));
   secondary.setOnClickListener(v->dialog.dismiss());actions.addView(secondary);
-  primary=label("ОБНОВИТЬ",12,android.graphics.Color.luminance(tint)>.35?Color.BLACK:Color.WHITE);primary.setTypeface(null,Typeface.BOLD);
-  primary.setGravity(Gravity.CENTER);primary.setPadding(dp(16),dp(13),dp(16),dp(13));primary.setBackground(bg(tint,0,13));
+  primary=actionButton("ОБНОВИТЬ",android.graphics.Color.luminance(tint)>.35?Color.BLACK:Color.WHITE);primary.setTypeface(null,Typeface.BOLD);
+  primary.setGravity(Gravity.CENTER);primary.setPadding(dp(16),dp(13),dp(16),dp(13));primary.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x33000000),bg(tint,0,13),null));
   LinearLayout.LayoutParams blp=new LinearLayout.LayoutParams(-2,-2);blp.leftMargin=dp(8);
   actions.addView(primary,blp);primary.setVisibility(View.GONE);
   // Keep the progress, notes and actions in one custom, theme-aware dialog.
