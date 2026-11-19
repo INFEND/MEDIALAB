@@ -152,7 +152,8 @@ public final class MediaOtaDialog {
  private void renderStage(State next,String message,String hint){
   state=next;
   title.setText("Обновление MediaLAB");stageLabel.setText(message);detail.setText(hint);ring.setChecking(dialog.isShowing());
-  if(state==State.VERIFY){bytes.setContentDescription("Проверка целостности обновления");}else bytes.setContentDescription(null);
+  bytes.setContentDescription(null);
+  stageLabel.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
   receivedBytes=0L;expectedBytes=-1L;displayedBytes=0L;
   progress.setIndeterminate(true);secondary.setText("СКРЫТЬ");
   primary.setVisibility(View.GONE);bytes.setText("");percent.setText("");
@@ -160,7 +161,11 @@ public final class MediaOtaDialog {
   progress.setProgress(0);ring.setProgressFraction(0f);
  }
  public void setHistory(String changes){
-  notes.setText(formatNotes(changes,themeMode==2));history.setVisibility(changes==null||changes.trim().isEmpty()?View.GONE:View.VISIBLE);history.scrollTo(0,0);
+  CharSequence formatted=formatNotes(changes,themeMode==2);
+  boolean changed=!android.text.TextUtils.equals(notes.getText(),formatted);
+  if(changed)notes.setText(formatted);
+  history.setVisibility(changes==null||changes.trim().isEmpty()?View.GONE:View.VISIBLE);
+  if(changed)history.post(()->history.scrollTo(0,0));
  }
  public void offer(String version,String changes,Runnable action){
   state=State.OFFER;
