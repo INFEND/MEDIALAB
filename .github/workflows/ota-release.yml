@@ -120,9 +120,11 @@ jobs:
             cp .gradle/medialab-video-ultra/video-ultra-arm64-v1.so dist/
             cp .gradle/medialab-video-ultra/video-ultra-source-relink.tar.gz dist/
           fi
-          if [ "${{ steps.metadata.outputs.tag }}" = v1.3.67 ]; then
+          if [ "${{ steps.metadata.outputs.tag }}" = v1.3.67 ] || [ -f .gradle/medialab-photo-ultra/publish-with-1.3.68 ]; then
             cp .gradle/medialab-photo-ultra/photo-ultra-arm64-v1.so dist/
             cp .gradle/medialab-photo-ultra/photo-ultra-licenses.txt dist/
+          fi
+          if [ "${{ steps.metadata.outputs.tag }}" = v1.3.67 ] || [ -f .gradle/medialab-photo-extra/publish-with-1.3.68 ]; then
             cp .gradle/medialab-photo-extra/photo-extra-arm64-v1.so dist/
             cp .gradle/medialab-photo-extra/photo-extra-licenses.txt dist/
             cp .gradle/medialab-photo-extra/photo-extra-Cargo.lock dist/
@@ -154,11 +156,11 @@ jobs:
           else
             gh release view v1.3.27 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq 'ffmpeg-arm64-8.1.9.zip'
           fi
-          if [ "$TAG" = v1.3.67 ]; then
-            ASSETS+=(dist/photo-ultra-arm64-v1.so dist/photo-ultra-licenses.txt dist/photo-extra-arm64-v1.so dist/photo-extra-licenses.txt dist/photo-extra-Cargo.lock)
-          else
-            gh release view v1.3.67 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq 'photo-ultra-arm64-v1.so'
-            gh release view v1.3.67 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq 'photo-extra-arm64-v1.so'
+          if [ -f dist/photo-ultra-arm64-v1.so ]; then
+            ASSETS+=(dist/photo-ultra-arm64-v1.so dist/photo-ultra-licenses.txt)
+          fi
+          if [ -f dist/photo-extra-arm64-v1.so ]; then
+            ASSETS+=(dist/photo-extra-arm64-v1.so dist/photo-extra-licenses.txt dist/photo-extra-Cargo.lock)
           fi
           if [ "$TAG" = v1.3.68 ]; then
             ASSETS+=(dist/video-ultra-arm64-v1.so dist/video-ultra-source-relink.tar.gz)
