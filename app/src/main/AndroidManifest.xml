@@ -18,6 +18,7 @@
         android:usesCleartextTraffic="false">
         <service android:name=".MediaOtaBackgroundJob" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="true"/>
         <provider android:name=".OtaApkProvider" android:authorities="com.xarkon.medialab.ota" android:exported="false" android:grantUriPermissions="true"/>
+        <service android:name=".PhotoExtraService" android:exported="false" android:foregroundServiceType="dataSync" android:stopWithTask="false"/>
         <service android:name=".PhotoModuleService" android:exported="false" android:foregroundServiceType="dataSync" android:stopWithTask="false"/>
         <service android:name=".ModuleDownloadService" android:exported="false" android:foregroundServiceType="dataSync" android:stopWithTask="false"/>
         <service android:name=".ConversionService"
