@@ -69,12 +69,13 @@ jobs:
           python3 scripts/test_video_sample.py
           python3 scripts/test_asc_full.py
 
-      - name: Build standalone PHOTO ULTRA runtime
+      - name: Build standalone PHOTO ULTRA and PHOTO EXTRA runtimes
         shell: bash
         run: |
           set -euo pipefail
           sdkmanager --install 'ndk;27.2.12479018'
           bash scripts/build_photo_ultra.sh
+          bash scripts/build_photo_extra.sh
 
       - name: Compile Android release
         shell: bash
@@ -112,9 +113,13 @@ jobs:
           fi
           python3 -m json.tool dist/update.json >/dev/null
           python3 scripts/verify_photo_ultra.py dist/MediaLAB.apk .gradle/medialab-photo-ultra/photo-ultra-arm64-v1.so
-          if [ "${{ steps.metadata.outputs.tag }}" = v1.3.66 ]; then
+          python3 scripts/verify_photo_extra.py dist/MediaLAB.apk .gradle/medialab-photo-extra/photo-extra-arm64-v1.so
+          if [ "${{ steps.metadata.outputs.tag }}" = v1.3.67 ]; then
             cp .gradle/medialab-photo-ultra/photo-ultra-arm64-v1.so dist/
             cp .gradle/medialab-photo-ultra/photo-ultra-licenses.txt dist/
+            cp .gradle/medialab-photo-extra/photo-extra-arm64-v1.so dist/
+            cp .gradle/medialab-photo-extra/photo-extra-licenses.txt dist/
+            cp .gradle/medialab-photo-extra/photo-extra-Cargo.lock dist/
           fi
 
       - name: Retain signed build as workflow artifact
@@ -143,10 +148,11 @@ jobs:
           else
             gh release view v1.3.27 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq 'ffmpeg-arm64-8.1.9.zip'
           fi
-          if [ "$TAG" = v1.3.66 ]; then
-            ASSETS+=(dist/photo-ultra-arm64-v1.so dist/photo-ultra-licenses.txt)
+          if [ "$TAG" = v1.3.67 ]; then
+            ASSETS+=(dist/photo-ultra-arm64-v1.so dist/photo-ultra-licenses.txt dist/photo-extra-arm64-v1.so dist/photo-extra-licenses.txt dist/photo-extra-Cargo.lock)
           else
-            gh release view v1.3.66 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq 'photo-ultra-arm64-v1.so'
+            gh release view v1.3.67 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq 'photo-ultra-arm64-v1.so'
+            gh release view v1.3.67 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq 'photo-extra-arm64-v1.so'
           fi
           gh release create "$TAG" "${ASSETS[@]}" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
