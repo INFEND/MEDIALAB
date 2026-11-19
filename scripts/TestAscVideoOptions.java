@@ -33,6 +33,12 @@ public final class TestAscVideoOptions {
             AscVideoOptions.append(opts,codec,AscVideoOptions.ultraQuality(codec),10_000_000,3);
             if(!opts.contains("-crf")||!opts.contains("-preset"))throw new AssertionError(opts);
         }
+        for(String codec:new String[]{"libkvazaar","libopenh264","av1_mediacodec"}){
+            if(!Arrays.asList(AscVideoOptions.ultraCodecs(Collections.singleton(codec))).contains(codec))throw new AssertionError(codec);
+            ArrayList<String> opts=new ArrayList<>();
+            AscVideoOptions.append(opts,codec,AscVideoOptions.ultraQuality(codec),10_000_000,3);
+            if(opts.isEmpty())throw new AssertionError(codec);
+        }
         if(args.length>0){
             ArrayList<String> opts=new ArrayList<>();
             AscVideoOptions.append(opts,args[0],args.length>1?AscVideoOptions.ultraQuality(args[0]):4,10_000_000,3);
