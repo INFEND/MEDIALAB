@@ -246,6 +246,7 @@ public final class MainActivity extends Activity {
             } else if(!ModuleDownloadService.isPaused(this)) initializeFfmpegAsync();
             else {ffmpegDiagnostic="Докачка на паузе. Нажмите «Проверить / докачать FFmpeg».";setStatus(ffmpegDiagnostic,false);}
             if(PhotoModuleService.pending(this)&&!PhotoModuleService.running){try{PhotoModuleService.request(this,PhotoModuleService.START);}catch(RuntimeException ignored){}}
+            if(PhotoExtraService.pending(this)&&!PhotoExtraService.running){try{PhotoExtraService.request(this,PhotoExtraService.START);}catch(RuntimeException ignored){}}
             if("com.xarkon.medialab.CHECK_OTA".equals(getIntent().getAction()))
                 ui.postDelayed(()->OtaUpdater.checkAndOffer(this,BLUE),550);
         } catch (Throwable startupError) {
@@ -490,10 +491,25 @@ public final class MainActivity extends Activity {
         photoRestart.setOnClickListener(v->{try{PhotoModuleService.request(this,PhotoModuleService.RESTART);}catch(RuntimeException ex){photoModuleStatus.setText(formatFailure(ex));}});
         modules.addView(photoRestart,boxLp(-1,dp(46),2));
         modules.addView(txt("Установленный модуль используется ASC ULTRA автоматически. Исходный формат фото сохраняется, если выбран «Исходный».",11,SECONDARY,false),boxLp(-1,-2,8));
+        TextView extraModuleStatus=txt(PhotoExtraPack.info(this),12,SECONDARY,false);
+        modules.addView(txt("PHOTO EXTRA · JPEG XL / OxiPNG",14,WHITE,true),boxLp(-1,-2,5));
+        modules.addView(extraModuleStatus,boxLp(-1,-2,8));
+        Button extraDownload=button("Скачать / продолжить PHOTO EXTRA",true);
+        extraDownload.setOnClickListener(v->{try{PhotoExtraService.request(this,PhotoExtraService.START);}catch(RuntimeException ex){extraModuleStatus.setText(formatFailure(ex));}});
+        modules.addView(extraDownload,boxLp(-1,dp(46),2));
+        Button extraPause=button("Пауза PHOTO EXTRA",false);
+        extraPause.setOnClickListener(v->{if(PhotoExtraService.running)PhotoExtraService.request(this,PhotoExtraService.PAUSE);});
+        modules.addView(extraPause,boxLp(-1,dp(46),2));
+        Button extraRestart=button("Перезапустить PHOTO EXTRA с нуля",false);
+        extraRestart.setOnClickListener(v->{try{PhotoExtraService.request(this,PhotoExtraService.RESTART);}catch(RuntimeException ex){extraModuleStatus.setText(formatFailure(ex));}});
+        modules.addView(extraRestart,boxLp(-1,dp(46),2));
+        modules.addView(txt("JPEG XL: непрозрачные SDR RGB 8 бит. OxiPNG: сжатие исходного PNG без потерь, с сохранением блоков метаданных.",11,SECONDARY,false),boxLp(-1,-2,8));
         Runnable photoRefresh=new Runnable(){public void run(){
             if(openSettingsDialog==null||!openSettingsDialog.isShowing())return;
             photoModuleStatus.setText(PhotoModuleService.running?PhotoModuleService.status:PhotoUltraPack.info(MainActivity.this)+(PhotoModuleService.status.isEmpty()?"":"\n"+PhotoModuleService.status));
             photoPause.setEnabled(PhotoModuleService.running);
+            extraModuleStatus.setText(PhotoExtraService.running?PhotoExtraService.status:PhotoExtraPack.info(MainActivity.this)+(PhotoExtraService.status.isEmpty()?"":"\n"+PhotoExtraService.status));
+            extraPause.setEnabled(PhotoExtraService.running);
             ui.postDelayed(this,500);
         }};
         openSettingsDialog=new AlertDialog.Builder(this).setView(scroll).create();
@@ -1818,6 +1834,7 @@ public final class MainActivity extends Activity {
             BitmapFactory.Options opt = new BitmapFactory.Options();
             opt.inJustDecodeBounds = true;
             BitmapFactory.decodeStream(in, null, opt);
+            if(opt.outWidth<=0||opt.outHeight<=0)return PhotoExtraPack.decodeUri(this,uri,680);
             int max = Math.max(opt.outWidth, opt.outHeight);
             int scale = 1;
             while (max / scale > 680) scale *= 2;
