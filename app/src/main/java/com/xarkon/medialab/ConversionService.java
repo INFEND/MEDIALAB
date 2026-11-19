@@ -313,7 +313,7 @@ public final class ConversionService extends Service {
                                 if(itemCfg.mode==ConvertEngine.VIDEO&&(keptOriginal||output.equals(input)||!result.verified||output.length()>=input.length()))
                                     throw new java.io.IOException("ASC PRO: видео не сжато. Исходный файл не изменён.");
                             } else {
-                            boolean nativeImage = ConvertEngine.convertNativeImage(input, output, itemCfg, cancellation::get);
+                            boolean nativeImage = PhotoExtraPack.convertManual(this,input,output,itemCfg,cancellation::get)||ConvertEngine.convertNativeImage(input, output, itemCfg, cancellation::get);
                             if(!nativeImage) {
                                 FFmpegSession session = ConvertEngine.convert(input, output, itemCfg, info, 0, 0);
                                 validate(session, output);
@@ -545,7 +545,7 @@ public final class ConversionService extends Service {
                     throw new java.io.IOException("ASC PRO: видео не сжато. Исходный файл не изменён.");
             }else{
                 output=ConvertEngine.outputTemp(this,format);
-                if(!ConvertEngine.convertNativeImage(input,output,itemCfg,cancellation::get)){
+                if(!PhotoExtraPack.convertManual(this,input,output,itemCfg,cancellation::get)&&!ConvertEngine.convertNativeImage(input,output,itemCfg,cancellation::get)){
                     FFmpegSession session=ConvertEngine.convert(input,output,itemCfg,info,0,0);
                     validate(session,output);
                 }
@@ -556,7 +556,7 @@ public final class ConversionService extends Service {
             if(mime==null)mime=ConvertEngine.mime(itemCfg.mode,format);
             if(replace&&!kept){
                 batchProgress(index,85,"Проверка декодирования: "+src.name);
-                ConvertEngine.verifyForReplacement(output,itemCfg.mode,info,cancellation::get);
+                ConvertEngine.verifyForReplacement(this,output,itemCfg.mode,info,cancellation::get);
             }
             batchProgress(index,90,"Сохранение и проверка: "+src.name);
             OutputPolicy.Saved saved=OutputPolicy.save(this,output,input,src,format,mime,index,tree,names,replace,kept,cancellation::get);
