@@ -68,6 +68,7 @@ jobs:
           fi
           python3 scripts/test_video_sample.py
           python3 scripts/test_asc_full.py
+          bash scripts/test_resumable_modules.sh
 
       - name: Build standalone PHOTO ULTRA and PHOTO EXTRA runtimes
         shell: bash
