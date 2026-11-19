@@ -135,6 +135,21 @@ final class SmartCompression {
                 if(isUltra(cfg.quality)&&!a.hasAlpha()&&Arrays.asList("jpg","webp","avif").contains(fmt)) qualities="avif".equals(fmt)?new int[]{80,84,88,92,94,96,98,100}:new int[]{72,76,80,84,88,90,92,94,96,98,100};
                 for(int q:qualities){
                     check(c);
+                    if(isUltra(cfg.quality)&&("jpg".equals(fmt)||"webp".equals(fmt))&&PhotoUltraPack.loadInstalled(ctx)){
+                        File nativeOut=ConvertEngine.outputTemp(ctx,fmt);Bitmap decoded=null;
+                        try{
+                            status.update("ASC ULTRA · "+("jpg".equals(fmt)?"JPEGli":"libwebp")+" · "+q);
+                            if(PhotoUltraPack.encode(ctx,a,nativeOut,fmt,q)&&nativeOut.length()>0&&
+                                (changed||nativeOut.length()<in.length())&&(best==null||nativeOut.length()<best.file.length())){
+                                decoded=bitmap(nativeOut);
+                                if(photoPass(a,decoded,performance,c)){
+                                    if(best!=null)best.file.delete();
+                                    best=new Result(nativeOut,fmt,false);nativeOut=null;
+                                }
+                            }
+                        }catch(IllegalArgumentException|IOException ex){check(c);}
+                        finally{if(decoded!=null)decoded.recycle();if(nativeOut!=null)nativeOut.delete();}
+                    }
                     File out=ConvertEngine.outputTemp(ctx,fmt); Bitmap b=null;
                     try{
                         status.update("ASC PRO · фото: "+fmt.toUpperCase(Locale.ROOT)+" "+q+" · контроль деталей");
