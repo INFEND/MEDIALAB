@@ -370,7 +370,10 @@ final class SmartCompression {
             if(!video&&cfg.mode!=ConvertEngine.EXTRACT)return null;
         }
         Set<String> availableEncoders=video?new HashSet<>(ConvertEngine.videoEncoders()):Collections.emptySet();
-        if(nativeSvt)availableEncoders.add("svt_native");
+        if(nativeSvt){
+            if(availableEncoders.isEmpty())availableEncoders.addAll(Arrays.asList(AscVideoOptions.ultraCodecs(Collections.emptySet())));
+            availableEncoders.add("svt_native");
+        }
         String[] codecs=video?(isUltra(cfg.quality)?AscVideoOptions.ultraCodecs(availableEncoders):AscVideoOptions.codecs(availableEncoders,cfg.performance)):new String[]{"libopus","aac","flac"};
         if(video&&codecs.length==0){d.note("В установленном FFmpeg нет совместимых видеокодировщиков");return null;}
         if(video)android.util.Log.i("MediaLAB_ASC","Available ASC encoders: "+Arrays.toString(codecs));
@@ -585,7 +588,7 @@ final class SmartCompression {
             }
             check(c);
             long total=length>0?length:d.fullDurationMs;
-            long limit=length>0?0:input.length()+1048576L;
+            long limit=length>0?0:Math.min(Long.MAX_VALUE-1048576L,input.length())+1048576L;
             long[] last={0};
             int rc=VideoUltraPack.encode(ctx,source,output,q,performance,limit,(ms,frames)->{
                 if(c.canceled()||Thread.currentThread().isInterrupted())return false;
