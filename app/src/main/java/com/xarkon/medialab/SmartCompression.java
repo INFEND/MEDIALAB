@@ -73,6 +73,10 @@ final class SmartCompression {
     static Result run(Context ctx, File in, ConvertEngine.Config cfg, ConvertEngine.MediaInfo info,
                       long start,long length,boolean preview,String sourceKey,ConvertEngine.Canceled canceled,Status status) throws IOException {
         check(canceled);
+        if(isUltra(cfg.quality)){
+            final Status downstream=status;
+            status=new Status(){public void update(String m){downstream.update(m.replace("ASC PRO","ASC ULTRA"));}public void progress(String m,int p){downstream.progress(m.replace("ASC PRO","ASC ULTRA"),p);}};
+        }
         Result best=null;
         Diagnostics diagnostics=new Diagnostics();diagnostics.status=status;
         if(cfg.mode==ConvertEngine.IMAGE) best=image(ctx,in,cfg,canceled,status);
