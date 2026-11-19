@@ -245,6 +245,7 @@ public final class MainActivity extends Activity {
                 updateButtons();
             } else if(!ModuleDownloadService.isPaused(this)) initializeFfmpegAsync();
             else {ffmpegDiagnostic="Докачка на паузе. Нажмите «Проверить / докачать FFmpeg».";setStatus(ffmpegDiagnostic,false);}
+            if(PhotoModuleService.pending(this)&&!PhotoModuleService.running){try{PhotoModuleService.request(this,PhotoModuleService.START);}catch(RuntimeException ignored){}}
             if("com.xarkon.medialab.CHECK_OTA".equals(getIntent().getAction()))
                 ui.postDelayed(()->OtaUpdater.checkAndOffer(this,BLUE),550);
         } catch (Throwable startupError) {
@@ -475,9 +476,30 @@ public final class MainActivity extends Activity {
         system.addView(pauseLibrary,boxLp(-1,dp(46),2));
         system.addView(txt("Пауза сохраняет загруженные байты. Докачка работает в фоне и отображается в уведомлении.",11,SECONDARY,false),boxLp(-1,-2,6));
 
+        LinearLayout modules=settingsGroup(body,"Модули ASC ULTRA","Отдельные библиотеки · ARM64",android.R.drawable.ic_menu_save);
+        TextView photoModuleStatus=txt(PhotoUltraPack.info(this),12,SECONDARY,false);
+        modules.addView(txt("PHOTO ULTRA · JPEGli / libwebp",14,WHITE,true),boxLp(-1,-2,5));
+        modules.addView(photoModuleStatus,boxLp(-1,-2,8));
+        Button photoDownload=button("Скачать / продолжить PHOTO ULTRA",true);
+        photoDownload.setOnClickListener(v->{try{PhotoModuleService.request(this,PhotoModuleService.START);}catch(RuntimeException ex){photoModuleStatus.setText(formatFailure(ex));}});
+        modules.addView(photoDownload,boxLp(-1,dp(46),2));
+        Button photoPause=button("Пауза PHOTO ULTRA",false);
+        photoPause.setOnClickListener(v->{if(PhotoModuleService.running)PhotoModuleService.request(this,PhotoModuleService.PAUSE);});
+        modules.addView(photoPause,boxLp(-1,dp(46),2));
+        Button photoRestart=button("Перезапустить PHOTO ULTRA с нуля",false);
+        photoRestart.setOnClickListener(v->{try{PhotoModuleService.request(this,PhotoModuleService.RESTART);}catch(RuntimeException ex){photoModuleStatus.setText(formatFailure(ex));}});
+        modules.addView(photoRestart,boxLp(-1,dp(46),2));
+        modules.addView(txt("Установленный модуль используется ASC ULTRA автоматически. Исходный формат фото сохраняется, если выбран «Исходный».",11,SECONDARY,false),boxLp(-1,-2,8));
+        Runnable photoRefresh=new Runnable(){public void run(){
+            if(openSettingsDialog==null||!openSettingsDialog.isShowing())return;
+            photoModuleStatus.setText(PhotoModuleService.running?PhotoModuleService.status:PhotoUltraPack.info(MainActivity.this)+(PhotoModuleService.status.isEmpty()?"":"\n"+PhotoModuleService.status));
+            photoPause.setEnabled(PhotoModuleService.running);
+            ui.postDelayed(this,500);
+        }};
         openSettingsDialog=new AlertDialog.Builder(this).setView(scroll).create();
         openSettingsDialog.setOnDismissListener(d->openSettingsDialog=null);
         openSettingsDialog.show();
+        ui.post(photoRefresh);
         if(openSettingsDialog.getWindow()!=null) {
             android.view.Window window=openSettingsDialog.getWindow();
             window.setBackgroundDrawableResource(android.R.color.transparent);
