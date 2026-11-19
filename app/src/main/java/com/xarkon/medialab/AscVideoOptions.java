@@ -23,6 +23,21 @@ final class AscVideoOptions {
         for(String codec:preferred)if(available.contains(codec))result.add(codec);
         return result.toArray(new String[0]);
     }
+    static String[] ultraCodecs(Set<String> available){
+        String[] preferred={"libsvtav1","libaom-av1","libx265","libvpx-vp9","hevc_mediacodec","h264_mediacodec","libx264"};
+        if(available.isEmpty())return new String[]{"libaom-av1","libvpx-vp9","hevc_mediacodec","h264_mediacodec"};
+        ArrayList<String> result=new ArrayList<>();
+        for(String codec:preferred)if(available.contains(codec))result.add(codec);
+        return result.toArray(new String[0]);
+    }
+    // Conservative presets, not a visual-quality guarantee. No video quality scoring.
+    static int ultraQuality(String codec){
+        if(hardware(codec))return 80;
+        if("libx264".equals(codec))return 19;
+        if("libx265".equals(codec))return 21;
+        if("libsvtav1".equals(codec)||"libaom-av1".equals(codec))return 23;
+        return 22;
+    }
     /** Up to five non-overlapping samples. Long clips cover different scene complexity. */
     static List<Long> sampleStarts(long durationMs,long clipMs){
         if(durationMs<=0||clipMs<=0)return Collections.singletonList(0L);
@@ -57,6 +72,10 @@ final class AscVideoOptions {
             Collections.addAll(args,"-crf",String.valueOf(quality),"-b:v:0","0","-deadline","good","-cpu-used",performance==3?"6":"4","-row-mt","1");
         }else if("libaom-av1".equals(codec)){
             Collections.addAll(args,"-crf",String.valueOf(quality),"-b:v:0","0","-cpu-used",performance==3?"8":"6","-row-mt","1");
+        }else if("libsvtav1".equals(codec)){
+            Collections.addAll(args,"-crf",String.valueOf(quality),"-preset",performance==3?"8":"6");
+        }else if("libx265".equals(codec)||"libx264".equals(codec)){
+            Collections.addAll(args,"-crf",String.valueOf(quality),"-preset",performance==3?"fast":"medium");
         }else if("mpeg4".equals(codec)){
             Collections.addAll(args,"-q:v:0",String.valueOf(quality),"-pix_fmt","yuv420p");
         }else throw new IllegalArgumentException("Unsupported ASC encoder: "+codec);
