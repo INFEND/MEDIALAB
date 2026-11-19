@@ -9,14 +9,21 @@ LICENSES="$OUT/photo-extra-licenses.txt"
 URL="https://github.com/INFEND/MEDIALAB/releases/download/v1.3.67/photo-extra-arm64-v1.so"
 mkdir -p "$ASSETS"
 VERSION="$(sed -n 's/.*versionName "\([^"]*\)".*/\1/p' app/build.gradle | head -1)"
-rm -f "$OUT/publish-with-1.3.68"
-if [[ "$VERSION" != 1.3.67 ]] && curl --fail --location --retry 2 --connect-timeout 15 --output "$PACK" "$URL"; then
-  : # Existing immutable asset keeps its URL and hash across OTA.
-elif [[ "$VERSION" == 1.3.67 || "$VERSION" == 1.3.68 ]]; then
-  if [[ "$VERSION" == 1.3.68 ]]; then
-    URL="${URL/v1.3.67/v1.3.68}"
-    touch "$OUT/publish-with-1.3.68"
+rm -f "$OUT/publish-with-current"
+FOUND=0
+for tag in 1.3.67 1.3.68 1.3.69; do
+  if [[ "$tag" == "$VERSION" ]]; then continue; fi
+  CANDIDATE="https://github.com/INFEND/MEDIALAB/releases/download/v$tag/photo-extra-arm64-v1.so"
+  if curl --fail --location --retry 1 --connect-timeout 15 --output "$PACK" "$CANDIDATE"; then
+    URL="$CANDIDATE"; FOUND=1; break
   fi
+done
+if [[ "$FOUND" == 0 ]]; then
+  if [[ "$VERSION" != "1.3.67" && "$VERSION" != "1.3.68" && "$VERSION" != "1.3.69" ]]; then
+    echo "Missing published photo-extra package; add a new approved release location before rebuilding"; exit 1
+  fi
+  URL="https://github.com/INFEND/MEDIALAB/releases/download/v$VERSION/photo-extra-arm64-v1.so"
+  touch "$OUT/publish-with-current"
   mkdir -p "$OUT/src"
   JXL="$OUT/src/libjxl"
   if [[ ! -d "$JXL/.git" ]]; then git init -q "$JXL"; git -C "$JXL" remote add origin https://github.com/libjxl/libjxl.git; fi
@@ -65,9 +72,6 @@ for package in lock["package"]:
             print(f.read_text(errors="replace"))
 PY
   } > "$LICENSES"
-else
-  URL="${URL/v1.3.67/v1.3.68}"
-  curl --fail --location --retry 4 --output "$PACK" "$URL"
 fi
 python3 - "$PACK" "$ASSETS/photo-extra.json" "$URL" <<'PY'
 import hashlib,json,pathlib,subprocess,sys,re
