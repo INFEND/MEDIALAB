@@ -248,6 +248,7 @@ public final class MainActivity extends Activity {
             if(PhotoModuleService.pending(this)&&!PhotoModuleService.running){try{PhotoModuleService.request(this,PhotoModuleService.START);}catch(RuntimeException ignored){}}
             if(PhotoExtraService.pending(this)&&!PhotoExtraService.running){try{PhotoExtraService.request(this,PhotoExtraService.START);}catch(RuntimeException ignored){}}
             if(VideoUltraService.pending(this)&&!VideoUltraService.running){try{VideoUltraService.request(this,VideoUltraService.START);}catch(RuntimeException ignored){}}
+            if(AvifUltraService.pending(this)&&!AvifUltraService.running){try{AvifUltraService.request(this,AvifUltraService.START);}catch(RuntimeException ignored){}}
             if("com.xarkon.medialab.CHECK_OTA".equals(getIntent().getAction()))
                 ui.postDelayed(()->OtaUpdater.checkAndOffer(this,BLUE),550);
         } catch (Throwable startupError) {
@@ -518,6 +519,19 @@ public final class MainActivity extends Activity {
         videoRestart.setOnClickListener(v->{try{VideoUltraService.request(this,VideoUltraService.RESTART);}catch(RuntimeException ex){videoModuleStatus.setText(formatFailure(ex));}});
         modules.addView(videoRestart,boxLp(-1,dp(46),2));
         modules.addView(txt("SVT-AV1 · SDR 8 бит, YUV420P до 4096 × 4096. Полное видео кодируется потоком; неподдерживаемые источники обрабатывает основной движок.",11,SECONDARY,false),boxLp(-1,-2,8));
+        TextView avifModuleStatus=txt(AvifUltraPack.info(this),12,SECONDARY,false);
+        modules.addView(txt("AVIF ULTRA · libavif / libaom",14,WHITE,true),boxLp(-1,-2,5));
+        modules.addView(avifModuleStatus,boxLp(-1,-2,8));
+        Button avifDownload=button("Скачать / продолжить AVIF ULTRA",true);
+        avifDownload.setOnClickListener(v->{try{AvifUltraService.request(this,AvifUltraService.START);}catch(RuntimeException ex){avifModuleStatus.setText(formatFailure(ex));}});
+        modules.addView(avifDownload,boxLp(-1,dp(46),2));
+        Button avifPause=button("Пауза AVIF ULTRA",false);
+        avifPause.setOnClickListener(v->{if(AvifUltraService.running)AvifUltraService.request(this,AvifUltraService.PAUSE);});
+        modules.addView(avifPause,boxLp(-1,dp(46),2));
+        Button avifRestart=button("Перезапустить AVIF ULTRA с нуля",false);
+        avifRestart.setOnClickListener(v->{try{AvifUltraService.request(this,AvifUltraService.RESTART);}catch(RuntimeException ex){avifModuleStatus.setText(formatFailure(ex));}});
+        modules.addView(avifRestart,boxLp(-1,dp(46),2));
+        modules.addView(txt("AVIF 4:4:4 · непрозрачные SDR-фото; сравнение с основным кодировщиком ASC ULTRA.",11,SECONDARY,false),boxLp(-1,-2,8));
         Runnable photoRefresh=new Runnable(){public void run(){
             if(openSettingsDialog==null||!openSettingsDialog.isShowing())return;
             photoModuleStatus.setText(PhotoModuleService.running?PhotoModuleService.status:PhotoUltraPack.info(MainActivity.this)+(PhotoModuleService.status.isEmpty()?"":"\n"+PhotoModuleService.status));
@@ -526,6 +540,8 @@ public final class MainActivity extends Activity {
             extraPause.setEnabled(PhotoExtraService.running);
             videoModuleStatus.setText(VideoUltraService.running?VideoUltraService.status:VideoUltraPack.info(MainActivity.this)+(VideoUltraService.status.isEmpty()?"":"\n"+VideoUltraService.status));
             videoPause.setEnabled(VideoUltraService.running);
+            avifModuleStatus.setText(AvifUltraService.running?AvifUltraService.status:AvifUltraPack.info(MainActivity.this)+(AvifUltraService.status.isEmpty()?"":"\n"+AvifUltraService.status));
+            avifPause.setEnabled(AvifUltraService.running);
             ui.postDelayed(this,500);
         }};
         openSettingsDialog=new AlertDialog.Builder(this).setView(scroll).create();
