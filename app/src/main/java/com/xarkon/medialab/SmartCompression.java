@@ -16,7 +16,9 @@ import java.util.regex.*;
 
 /** ASC PRO: local, conservative quality-gated encoding. The original is never modified. */
 final class SmartCompression {
-    static final int QUALITY = 101;
+    static final int QUALITY = 101, ULTRA = 102;
+    static boolean isSmart(int q){return q==QUALITY||q==ULTRA;}
+    static boolean isUltra(int q){return q==ULTRA;}
     interface Status {
         void update(String message);
         default void progress(String message,int percent){update(message);}
@@ -126,6 +128,7 @@ final class SmartCompression {
             for(String fmt:formats){
                 int[] qualities=("png".equals(fmt)||"bmp".equals(fmt)||"tiff".equals(fmt)||"gif".equals(fmt))?new int[]{100}:a.hasAlpha()?new int[]{100}:
                     performance==3?("avif".equals(fmt)?new int[]{94,98}:new int[]{84,94,98}):"avif".equals(fmt)?new int[]{94,98}:new int[]{84,94,98,100};
+                if(isUltra(cfg.quality)&&!a.hasAlpha()&&Arrays.asList("jpg","webp","avif").contains(fmt)) qualities="avif".equals(fmt)?new int[]{80,84,88,92,94,96,98,100}:new int[]{72,76,80,84,88,90,92,94,96,98,100};
                 for(int q:qualities){
                     check(c);
                     File out=ConvertEngine.outputTemp(ctx,fmt); Bitmap b=null;
@@ -159,8 +162,8 @@ final class SmartCompression {
                         if(!photoPass(a,b,performance,c))continue;
                         if(best!=null)best.file.delete();
                         best=new Result(out,fmt,false);out=null;
-                        if(performance==3 && best.file.length()<=in.length()*0.75)return best; // fast exit only after full quality gate and substantial saving
-                        break; // first passing quality for this codec; compare codecs by bytes
+                        if(!isUltra(cfg.quality)&&performance==3 && best.file.length()<=in.length()*0.75)return best; // fast exit only after full quality gate and substantial saving
+                        if(!isUltra(cfg.quality))break; // ULTRA compares all passing candidates
                     }catch(IllegalArgumentException|IOException ex){check(c);}
                     finally{if(b!=null)b.recycle();if(out!=null)out.delete();}
                 }
@@ -331,7 +334,7 @@ final class SmartCompression {
             if(!video&&cfg.mode!=ConvertEngine.EXTRACT)return null;
         }
         Set<String> availableEncoders=video?ConvertEngine.videoEncoders():Collections.emptySet();
-        String[] codecs=video?AscVideoOptions.codecs(availableEncoders,cfg.performance):new String[]{"libopus","aac","flac"};
+        String[] codecs=video?(isUltra(cfg.quality)?AscVideoOptions.ultraCodecs(availableEncoders):AscVideoOptions.codecs(availableEncoders,cfg.performance)):new String[]{"libopus","aac","flac"};
         if(video&&codecs.length==0){d.note("В установленном FFmpeg нет совместимых видеокодировщиков");return null;}
         if(video)android.util.Log.i("MediaLAB_ASC","Available ASC encoders: "+Arrays.toString(codecs));
         long probeLength=length>0?length:Math.min(video?5000:5000,inf.durationMs);
@@ -374,6 +377,7 @@ final class SmartCompression {
     private static Result searchCandidates(Context ctx,File original,File sampleInput,ConvertEngine.Config cfg,
             ConvertEngine.MediaInfo inf,boolean preview,String sourceKey,ConvertEngine.Canceled c,Status status,
             Diagnostics d,boolean video,String[] codecs,long bitrate,long probeStart,long probeLength)throws IOException{
+        if(video&&isUltra(cfg.quality))return searchUltraVideo(ctx,original,sampleInput,cfg,inf,preview,sourceKey,c,status,d,codecs,bitrate,probeStart,probeLength);
         for(String codec:codecs){
             if(d.failedHardware.contains(codec))continue;
             int[] steps=video?AscVideoOptions.steps(codec,cfg.performance):
@@ -410,6 +414,49 @@ final class SmartCompression {
             }
         }
         return null;
+    }
+    private static final class RankedPlan{
+        final Plan plan;final long bytes;
+        RankedPlan(Plan p,long b){plan=p;bytes=b;}
+    }
+    /** Encode real samples with different codecs; rank by size at conservative settings.
+     * Video has structural checks only, not a visual comparison or second quality pass. */
+    private static Result searchUltraVideo(Context ctx,File original,File sampleInput,ConvertEngine.Config cfg,
+            ConvertEngine.MediaInfo inf,boolean preview,String sourceKey,ConvertEngine.Canceled c,Status status,
+            Diagnostics d,String[] codecs,long bitrate,long start,long length)throws IOException{
+        ArrayList<RankedPlan> ranked=new ArrayList<>();
+        Result best=null;Plan bestPlan=null;
+        try{
+            for(String codec:codecs){
+                check(c);
+                if(d.failedHardware.contains(codec))continue;
+                int q=AscVideoOptions.ultraQuality(codec);
+                Plan p=new Plan(codec,q,bitrate);
+                status.update("ASC ULTRA · проба "+codec);
+                d.encodes++;
+                Result sample=encodeCandidate(ctx,sampleInput,cfg,codec,q,bitrate,start,length,c,d);
+                if(sample==null)continue;
+                try{
+                    if(!validVideo(sample.file,length,d.sourceAudioStreams,d,c))continue;
+                    ranked.add(new RankedPlan(p,sample.file.length()));
+                    if(preview&&(best==null||sample.file.length()<best.file.length())){
+                        if(best!=null)best.file.delete();
+                        best=sample;bestPlan=p;sample=null;
+                    }
+                }finally{if(sample!=null)sample.file.delete();}
+            }
+            if(preview&&best!=null){remember(sourceKey,bestPlan);Result result=best;best=null;return result;}
+            ranked.sort(Comparator.comparingLong(p->p.bytes));
+            for(RankedPlan entry:ranked){
+                check(c);
+                if(d.fullAttempts>=4)break;
+                d.fullAttempted=true;
+                status.update("ASC ULTRA · выбран "+entry.plan.codec);
+                Result result=encodeFull(ctx,original,cfg,inf,entry.plan,true,c,status,d);
+                if(result!=null){remember(sourceKey,entry.plan);return result;}
+            }
+            return null;
+        }finally{if(best!=null)best.file.delete();}
     }
     private static Result encodeFull(Context ctx,File in,ConvertEngine.Config cfg,ConvertEngine.MediaInfo inf,
                                      Plan plan,boolean video,ConvertEngine.Canceled c,Status status,Diagnostics d)throws IOException{
