@@ -148,11 +148,11 @@ final class SmartCompression {
                 if("jxl".equals(fmt))qualities=new int[]{88,92,96,98,100};
                 for(int q:qualities){
                     check(c);
-                    if(isUltra(cfg.quality)&&("jpg".equals(fmt)||"webp".equals(fmt))&&PhotoUltraPack.loadInstalled(ctx)){
+                    if(isUltra(cfg.quality)&&(("jpg".equals(fmt)||"webp".equals(fmt))&&PhotoUltraPack.loadInstalled(ctx)||"avif".equals(fmt)&&AvifUltraPack.loadInstalled(ctx))){
                         File nativeOut=ConvertEngine.outputTemp(ctx,fmt);Bitmap decoded=null;
                         try{
-                            status.update("ASC ULTRA · "+("jpg".equals(fmt)?"JPEGli":"libwebp")+" · "+q);
-                            if(PhotoUltraPack.encode(ctx,a,nativeOut,fmt,q)&&nativeOut.length()>0&&
+                            status.update("ASC ULTRA · "+("jpg".equals(fmt)?"JPEGli":"avif".equals(fmt)?"libavif":"libwebp")+" · "+q);
+                            if(("avif".equals(fmt)?AvifUltraPack.encode(ctx,a,nativeOut,q,performance):PhotoUltraPack.encode(ctx,a,nativeOut,fmt,q))&&nativeOut.length()>0&&
                                 (changed||nativeOut.length()<in.length())&&(best==null||nativeOut.length()<best.file.length())){
                                 decoded=bitmap(ctx,nativeOut);
                                 if(photoPass(a,decoded,performance,c)){
@@ -374,7 +374,7 @@ final class SmartCompression {
             if(availableEncoders.isEmpty())availableEncoders.addAll(Arrays.asList(AscVideoOptions.ultraCodecs(Collections.emptySet())));
             availableEncoders.add("svt_native");
         }
-        String[] codecs=video?(isUltra(cfg.quality)?AscVideoOptions.ultraCodecs(availableEncoders):AscVideoOptions.codecs(availableEncoders,cfg.performance)):new String[]{"libopus","aac","flac"};
+        String[] codecs=video?(isUltra(cfg.quality)?AscVideoOptions.ultraCodecs(availableEncoders):AscVideoOptions.codecs(availableEncoders,cfg.performance)):(isUltra(cfg.quality)?new String[]{"libopus","aac","libvorbis","libmp3lame","flac"}:new String[]{"libopus","aac","flac"});
         if(video&&codecs.length==0){d.note("В установленном FFmpeg нет совместимых видеокодировщиков");return null;}
         if(video)android.util.Log.i("MediaLAB_ASC","Available ASC encoders: "+Arrays.toString(codecs));
         long probeLength=length>0?length:Math.min(video?5000:5000,inf.durationMs);
@@ -530,7 +530,7 @@ final class SmartCompression {
     }
     private static Result encodeCandidate(Context ctx,File in,ConvertEngine.Config cfg,String codec,int q,long bitrate,long start,long length,ConvertEngine.Canceled c,Diagnostics d)throws IOException{
         boolean video=cfg.mode==ConvertEngine.VIDEO;
-        String fmt=video?"mkv":"libopus".equals(codec)?"opus":"aac".equals(codec)?"m4a":"flac";
+        String fmt=video?"mkv":"libopus".equals(codec)?"opus":"aac".equals(codec)?"m4a":"libvorbis".equals(codec)?"ogg":"libmp3lame".equals(codec)?"mp3":"flac";
         File out=ConvertEngine.outputTemp(ctx,fmt);
         try{
             if(video&&"svt_native".equals(codec)){
