@@ -250,7 +250,18 @@ public final class OtaUpdater {
                     throw new IOException("Недостаточно места для обновления");
                 long got=offset;
                 if(offset<release.size){
-                    HttpURLConnection conn=(HttpURLConnection)connection(release.url,offset);
+                    HttpURLConnection conn;
+                    try {
+                        conn=(HttpURLConnection)connection(release.url,offset);
+                    } catch(IOException rangeError) {
+                        // A stale partial file may no longer be accepted by the CDN.
+                        // Retry once from byte zero rather than trapping every Retry on HTTP 416.
+                        if(offset<=0 || !"Ошибка HTTP 416".equals(rangeError.getMessage()))
+                            throw rangeError;
+                        if(!temp.delete())throw new IOException("Не удалось сбросить устаревшую загрузку",rangeError);
+                        got=0;
+                        conn=(HttpURLConnection)connection(release.url,0);
+                    }
                     try {
                         if(conn.getResponseCode()==206){
                             String expected="bytes "+offset+"-"+(release.size-1)+"/"+release.size;
