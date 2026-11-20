@@ -15,7 +15,7 @@ import java.util.Locale;
 public final class MediaOtaDialog {
  private final Activity activity;
  private final Dialog dialog;
- private final TextView title,subtitle,stageLabel,detail,bytes,percent,notes;
+ private final TextView title,subtitle,stageLabel,detail,bytes,percent,notes,transferInfo;
  private final Button primary,secondary;
  private final ProgressBar progress;
  private final OtaRingView ring;
@@ -27,6 +27,8 @@ public final class MediaOtaDialog {
  private long receivedBytes=0L;
  private long expectedBytes=-1L;
  private long displayedBytes=0L;
+ private long rateBytes=-1L,rateTime=0L;
+ private double rate=0d;
  private enum State { CHECK, OFFER, DOWNLOAD, VERIFY, READY, CURRENT, ERROR }
  private State state=State.CHECK;
  private int dp(int n){return (int)(n*activity.getResources().getDisplayMetrics().density+.5f);}
@@ -98,6 +100,8 @@ public final class MediaOtaDialog {
   progress.setProgressBackgroundTintList(ColorStateList.valueOf(light?0xffe9eef3:0xff2a3139));
   LinearLayout.LayoutParams plp=new LinearLayout.LayoutParams(-1,dp(7));plp.topMargin=dp(12);
   root.addView(progress,plp);
+  transferInfo=label("",12,muted);transferInfo.setVisibility(View.GONE);
+  LinearLayout.LayoutParams rateLp=new LinearLayout.LayoutParams(-1,-2);rateLp.topMargin=dp(9);root.addView(transferInfo,rateLp);
   LinearLayout actions=new LinearLayout(a);actions.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
   LinearLayout.LayoutParams alp=new LinearLayout.LayoutParams(-1,-2);alp.topMargin=dp(24);
   root.addView(actions,alp);
@@ -168,7 +172,7 @@ public final class MediaOtaDialog {
   renderStage(State.VERIFY,message,hint);
  }
  private void renderStage(State next,String message,String hint){
-  state=next;
+  state=next;resetRate();
   title.setText("Обновление MediaLAB");stageLabel.setText(message);detail.setText(hint);ring.setChecking(dialog.isShowing());
   bytes.setContentDescription(null);
   stageLabel.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
@@ -189,7 +193,7 @@ public final class MediaOtaDialog {
   constrainWindowHeight();
  }
  public void offer(String version,String changes,Runnable action){
-  state=State.OFFER;
+  state=State.OFFER;resetRate();
   title.setText("Доступно обновление");stageLabel.setText("MediaLAB "+version);detail.setText("Новая версия готова к загрузке");
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   displayedProgress=0;receivedBytes=0L;expectedBytes=-1L;displayedBytes=0L;
@@ -206,7 +210,7 @@ public final class MediaOtaDialog {
   if(state==State.DOWNLOAD && total>0 && expectedBytes>0 && total!=expectedBytes)return;
   if(state==State.DOWNLOAD && done<receivedBytes)return;
    if(total>0 && done>total)return;
-  receivedBytes=done;expectedBytes=total;
+  receivedBytes=done;expectedBytes=total;sampleRate(done,total);
   state=State.DOWNLOAD;
   primary.setVisibility(View.GONE);secondary.setText("СКРЫТЬ");
   title.setText("Обновление MediaLAB");stageLabel.setText("Загрузка обновления");detail.setText("Защищённая загрузка MediaLAB");
@@ -242,7 +246,7 @@ public final class MediaOtaDialog {
  }
 
  public void ready(String version,Runnable install){
-  state=State.READY;
+  state=State.READY;resetRate();
   title.setText("Обновление загружено");stageLabel.setText("Готово к установке");detail.setText("MediaLAB "+version+" · APK проверен");
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(1000);ring.setProgressFraction(1f);
@@ -251,7 +255,7 @@ public final class MediaOtaDialog {
   primary.setOnClickListener(v->install.run());
  }
  public void current(String version){
-  state=State.CURRENT;
+  state=State.CURRENT;resetRate();
   title.setText("MediaLAB обновлён");stageLabel.setText("Установлена актуальная версия");detail.setText(version);
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   displayedProgress=1000;
@@ -261,7 +265,7 @@ public final class MediaOtaDialog {
   bytes.setText("");percent.setText("");
  }
  public void fail(String message,Runnable retry){
-  state=State.ERROR;
+  state=State.ERROR;resetRate();
   title.setText("Обновление не выполнено");stageLabel.setText("Не удалось обновить MediaLAB");detail.setText(message);
   displayedProgress=0;
   ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
@@ -270,6 +274,31 @@ public final class MediaOtaDialog {
   bytes.setText("");percent.setText("");secondary.setText("ЗАКРЫТЬ");
   primary.setText("ПОВТОРИТЬ");primary.setVisibility(retry==null?View.GONE:View.VISIBLE);
   primary.setOnClickListener(v->{if(retry!=null)retry.run();});
+ }
+ /** Transfer rate excludes cached/resumed bytes and uses a monotonic clock. */
+ private void sampleRate(long done,long total){
+  long now=android.os.SystemClock.elapsedRealtime();
+  if(rateBytes<0||done<rateBytes||now<rateTime){
+   rateBytes=done;rateTime=now;rate=0d;transferInfo.setVisibility(View.GONE);return;
+  }
+  long elapsed=now-rateTime;if(elapsed<700)return;
+  long delta=done-rateBytes;rateBytes=done;rateTime=now;
+  if(delta<=0)return;
+  double instant=delta*1000d/elapsed;
+  if(!Double.isFinite(instant)||instant<=0)return;
+  rate=rate<=0?instant:rate*.65d+instant*.35d;
+  String message=ConvertEngine.humanBytes((long)rate)+"/с";
+  if(total>done&&total>0){
+   long seconds=(long)Math.ceil((total-done)/rate);
+   if(seconds>0&&seconds<=86400){
+    long minutes=seconds/60;
+    message+=" · осталось ≈ "+(minutes>0?minutes+" мин ":"")+(seconds%60)+" с";
+   }
+  }
+  transferInfo.setText(message);transferInfo.setVisibility(View.VISIBLE);
+ }
+ private void resetRate(){
+  rateBytes=-1L;rateTime=0L;rate=0d;transferInfo.setText("");transferInfo.setVisibility(View.GONE);
  }
  private static CharSequence formatNotes(String input,boolean light){
   android.text.SpannableStringBuilder result=new android.text.SpannableStringBuilder();
