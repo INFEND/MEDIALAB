@@ -274,16 +274,17 @@ public final class OtaUpdater {
                         }else got=0; // Server ignored Range: restart safely.
                         final long initial=got;
                         main.post(()->publish(d->d.downloading(initial,release.size)));
-                        long lastUi=0;int lastPercent=-1;
+                        long lastUi=0;int lastTenth=-1;
                         try(InputStream in=conn.getInputStream();OutputStream out=new FileOutputStream(temp,got>0)){
                             byte[] b=new byte[65536];int n;
                             while((n=in.read(b))!=-1){
                                 if(n>release.size-got){temp.delete();throw new IOException("Неверный размер APK");}
                                 out.write(b,0,n);got+=n;
-                                int pct=(int)Math.min(100,got*100/release.size);
+                                // Report actual tenths of a percent to the themed OTA dialog.
+                                int tenth=(int)Math.min(1000d,got*1000d/release.size);
                                 long now=android.os.SystemClock.uptimeMillis();
-                                if(pct==100||(pct!=lastPercent&&now-lastUi>=120)){
-                                    lastUi=now;lastPercent=pct;long received=got;
+                                if(tenth==1000||(tenth!=lastTenth&&now-lastUi>=120)){
+                                    lastUi=now;lastTenth=tenth;long received=got;
                                     main.post(()->publish(d->d.downloading(received,release.size)));
                                 }
                             }

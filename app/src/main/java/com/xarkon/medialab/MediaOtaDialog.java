@@ -205,6 +205,7 @@ public final class MediaOtaDialog {
   // A server may supply the final length after an initially unknown total.
   if(state==State.DOWNLOAD && total>0 && expectedBytes>0 && total!=expectedBytes)return;
   if(state==State.DOWNLOAD && done<receivedBytes)return;
+   if(total>0 && done>total)return;
   receivedBytes=done;expectedBytes=total;
   state=State.DOWNLOAD;
   primary.setVisibility(View.GONE);secondary.setText("СКРЫТЬ");
