@@ -268,14 +268,27 @@ public final class MediaOtaDialog {
    if(resume==null||state!=State.PAUSED)return;
    // Explicitly leave PAUSED before the first resumed Range callback arrives.
    // Otherwise downloading() rejects every progress event from the resumed request.
-   state=State.OFFER;
-   primary.setEnabled(false);
-   stageLabel.setText("Возобновление загрузки…");
-   detail.setText("Подключение к серверу и проверка сохранённого диапазона");
-   resetRate();
+   // Keep the saved byte count and ring while the Range request reconnects.
+   reconnecting(saved,total);
    resume.run();
   });
   constrainWindowHeight();
+ }
+ /** Keep persisted partial progress visible until the server confirms HTTP Range. */
+ public void reconnecting(long saved,long total){
+  state=State.DOWNLOAD;resetRate();
+  if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
+  receivedBytes=Math.max(0,saved);expectedBytes=total;displayedBytes=receivedBytes;
+  title.setText("Обновление MediaLAB");
+  stageLabel.setText("Возобновление загрузки…");
+  detail.setText("Подключение к серверу и проверка сохранённого диапазона");
+  ring.setChecking(false);progress.setIndeterminate(total<=0);
+  if(total>0&&saved<=total)renderDownload(saved,total);
+  else {bytes.setText(ConvertEngine.humanBytes(saved));percent.setText("");}
+  primary.setText("ОТМЕНИТЬ");primary.setEnabled(true);
+  primary.setVisibility(cancelDownload==null?View.GONE:View.VISIBLE);
+  primary.setOnClickListener(v->{if(cancelDownload!=null){primary.setEnabled(false);cancelDownload.run();}});
+  secondary.setText("СКРЫТЬ");
  }
  public void ready(String version,Runnable install){
   state=State.READY;resetRate();primary.setEnabled(true);

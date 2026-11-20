@@ -230,9 +230,13 @@ public final class OtaUpdater {
         });
     }
     private static void download(Activity a,Release release,MediaOtaDialog ui){
+        download(a,release,ui,false);
+    }
+    private static void download(Activity a,Release release,MediaOtaDialog ui,boolean resumed){
         if(busy)return;
         cancelDownload.set(false);
-        busy=true;publish(d->d.stage("Подготовка загрузки…","MediaLAB "+release.name));
+        busy=true;
+        if(!resumed)publish(d->d.stage("Подготовка загрузки…","MediaLAB "+release.name));
         worker.execute(()->{
             File target=file(a),temp=new File(target.getParentFile(),"MediaLAB-candidate-"+release.sha+".apk");
             try{
@@ -349,7 +353,7 @@ public final class OtaUpdater {
                     // snapshot is measured. Never discard the digest-bound partial APK.
                     long saved=temp.isFile()?Math.min(temp.length(),release.size):0;
                     main.post(()->finish(d->d.paused(saved,release.size,
-                        ()->withOwner((host,dialog)->download(host,release,dialog)))));
+                        ()->withOwner((host,dialog)->download(host,release,dialog,true)))));
                 }else{
                     String message=e.getMessage()==null?"Ошибка загрузки":e.getMessage();
                     main.post(()->finish(d->d.fail(message,
