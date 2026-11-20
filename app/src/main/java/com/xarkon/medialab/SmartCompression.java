@@ -79,14 +79,15 @@ final class SmartCompression {
         }
         Result best=null;
         Diagnostics diagnostics=new Diagnostics();diagnostics.status=status;
-        if(cfg.mode==ConvertEngine.IMAGE) best=image(ctx,in,cfg,canceled,status);
+        if(cfg.mode==ConvertEngine.IMAGE) best=PhotoPreviewPlan.enabled(isUltra(cfg.quality),preview,cfg.format)
+                ?fastImagePreview(ctx,in,cfg,canceled,status):image(ctx,in,cfg,canceled,status);
         else if(cfg.mode==ConvertEngine.VIDEO || cfg.mode==ConvertEngine.AUDIO || cfg.mode==ConvertEngine.EXTRACT)
             best=av(ctx,in,cfg,info,start,length,preview,sourceKey,canceled,status,diagnostics);
         if(canceled.canceled()){if(best!=null)best.file.delete();check(canceled);}
         // An explicit format must match the bytes, not merely the filename. Changing
         // containers can legitimately require more space; same-format ASC never grows.
         boolean imageFormatChange=cfg.mode==ConvertEngine.IMAGE&&!cfg.format.equals(normalizedImageExt(in));
-        if(best!=null && (imageFormatChange || length>0 || cfg.mode==ConvertEngine.EXTRACT || best.file.length()<in.length())) return best;
+        if(best!=null && ((preview&&cfg.mode==ConvertEngine.IMAGE) || imageFormatChange || length>0 || cfg.mode==ConvertEngine.EXTRACT || best.file.length()<in.length())) return best;
         if(best!=null) best.file.delete();
         if(imageFormatChange)
             throw new IOException("ASC PRO: не удалось получить проверенное изображение в формате "+cfg.format.toUpperCase(Locale.ROOT)+". Исходный файл не изменён.");
@@ -117,6 +118,79 @@ final class SmartCompression {
             d.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB));
         });
     }
+    /**
+     * Visual-only fast preview. Export always uses the full-resolution multi-candidate
+     * optimizer and independent pixel quality checks in image().
+     * Result is unverified so callers do not mistake its bytes for the final output.
+     */
+    private static Result fastImagePreview(Context ctx,File in,ConvertEngine.Config cfg,
+                                           ConvertEngine.Canceled canceled,Status status)throws IOException{
+        Bitmap source=null,decoded=null;File out=null,intermediate=null;
+        try{
+            check(canceled);
+            status.progress("ASC ULTRA · подготовка быстрого образца",5);
+            source=ImageDecoder.decodeBitmap(ImageDecoder.createSource(in),(decoder,info,unused)->{
+                if(info.isAnimated()||(info.getColorSpace()!=null&&info.getColorSpace().isWideGamut()))
+                    throw new IllegalArgumentException("Animated or wide-gamut preview is unsupported");
+                int[] dims=PhotoPreviewPlan.target(info.getSize().getWidth(),info.getSize().getHeight());
+                decoder.setTargetSize(dims[0],dims[1]);
+                decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+                decoder.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB));
+            });
+            check(canceled);
+            out=ConvertEngine.outputTemp(ctx,cfg.format);
+            int quality=PhotoPreviewPlan.quality(cfg.format);
+            boolean ok=false;
+            status.progress("ASC ULTRA · один проход ("+cfg.format.toUpperCase(Locale.ROOT)+")",22);
+            if(!source.hasAlpha()){
+                if(("jpg".equals(cfg.format)||"webp".equals(cfg.format))&&PhotoUltraPack.loadInstalled(ctx))
+                    ok=PhotoUltraPack.encode(ctx,source,out,cfg.format,quality);
+                else if("avif".equals(cfg.format)&&AvifUltraPack.loadInstalled(ctx))
+                    ok=AvifUltraPack.encode(ctx,source,out,quality,3);
+            }
+            check(canceled);
+            if(!ok||out.length()<=0){
+                out.delete();
+                if("avif".equals(cfg.format)){
+                    intermediate=ConvertEngine.outputTemp(ctx,"png");
+                    try(OutputStream os=new FileOutputStream(intermediate)){
+                        if(!source.compress(Bitmap.CompressFormat.PNG,100,os))
+                            throw new IOException("Не удалось подготовить AVIF-образец");
+                    }
+                    ok=exec(canceled,"-i",intermediate.getAbsolutePath(),"-frames:v","1",
+                        "-c:v","libaom-av1","-still-picture","1","-cpu-used","8",
+                        "-threads","2","-crf",String.valueOf(63-quality*45/100),
+                        "-b:v","0",out.getAbsolutePath())!=null;
+                }else{
+                    Bitmap.CompressFormat codec="jpg".equals(cfg.format)?Bitmap.CompressFormat.JPEG:
+                            "png".equals(cfg.format)?Bitmap.CompressFormat.PNG:
+                            Bitmap.CompressFormat.WEBP_LOSSY;
+                    try(OutputStream os=new FileOutputStream(out)){
+                        ok=source.compress(codec,quality,os);
+                    }
+                }
+            }
+            check(canceled);
+            if(!ok||out.length()<=0)throw new IOException("Не удалось закодировать быстрый образец ASC ULTRA");
+            status.progress("ASC ULTRA · проверка чтения образца",88);
+            decoded=bitmap(ctx,out);
+            if(decoded.getWidth()!=source.getWidth()||decoded.getHeight()!=source.getHeight())
+                throw new IOException("Предпросмотр: размеры результата не совпадают");
+            check(canceled);
+            Result result=new Result(out,cfg.format,false,false);
+            out=null;
+            status.progress("ASC ULTRA · быстрый предпросмотр готов; экспорт будет полноразмерным",100);
+            return result;
+        }catch(IllegalArgumentException ex){
+            throw new IOException("ASC ULTRA: не удалось подготовить визуальный образец",ex);
+        }finally{
+            if(out!=null)out.delete();
+            if(intermediate!=null)intermediate.delete();
+            if(decoded!=null)decoded.recycle();
+            if(source!=null)source.recycle();
+        }
+    }
+
     private static String normalizedImageExt(File f){
         return ConvertEngine.normalizedImageExtension(f.getName());
     }

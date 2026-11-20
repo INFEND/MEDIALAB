@@ -1571,6 +1571,12 @@ public final class MainActivity extends Activity {
         }
         if (!previewParts.isEmpty() && previewSettings!=null) {
             boolean smartVideo=mode==ConvertEngine.VIDEO&&SmartCompression.isSmart(previewSettings.quality);
+            if(previewUnverified&&mode==ConvertEngine.IMAGE){
+                estimateBox.addView(txt("Быстрый визуальный образец до 1600 px. При сохранении ASC ULTRA обработает оригинал в полном разрешении и проверит качество.",12,BLUE,true),boxLp(-1,-2,5));
+                estimateBox.addView(txt("Размер образца: "+ConvertEngine.humanBytes(sampleSize)+" · не размер итогового файла",12,SECONDARY,false),boxLp(-1,-2,6));
+                if(fastEstimatedBytes>0)estimateBox.addView(txt("Приблизительный объём всей очереди: ≈ "+ConvertEngine.humanBytes(fastEstimatedBytes),15,BLUE,true));
+                return;
+            }
             if(previewUnverified&&!smartVideo){
                 estimateBox.addView(txt("Качество фрагмента не подтверждено. Прогноз недоступен.",13,BLUE,true),boxLp(-1,-2,6));
                 return;

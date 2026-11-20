@@ -69,6 +69,8 @@ jobs:
           python3 scripts/test_video_sample.py
           python3 scripts/test_asc_full.py
           bash scripts/test_resumable_modules.sh
+          javac -d /tmp/medialab-photo-preview-test app/src/main/java/com/xarkon/medialab/PhotoPreviewPlan.java scripts/TestPhotoPreviewPlan.java
+          java -cp /tmp/medialab-photo-preview-test com.xarkon.medialab.TestPhotoPreviewPlan
 
       - name: Build standalone PHOTO ULTRA and PHOTO EXTRA runtimes
         shell: bash

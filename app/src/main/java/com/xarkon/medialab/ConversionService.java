@@ -310,6 +310,7 @@ public final class ConversionService extends Service {
                                 output.delete(); output=null;
                                 SmartCompression.Result result=SmartCompression.run(this,input,itemCfg,info,0,0,!exporting,sourceKey,cancellation::get,SmartCompression.reporting((msg,percent)->markFile(msg,percent)));
                                 output=result.file;actualFormat=result.format;keptOriginal=result.original;
+                                if(!exporting&&itemCfg.mode==ConvertEngine.IMAGE&&!result.verified)state.previewUnverified=true;
                                 if(itemCfg.mode==ConvertEngine.VIDEO&&(keptOriginal||output.equals(input)||!result.verified||output.length()>=input.length()))
                                     throw new java.io.IOException("ASC PRO: видео не сжато. Исходный файл не изменён.");
                             } else {

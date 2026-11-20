@@ -195,7 +195,7 @@ public final class PreviewActivity extends Activity {
     private void showImageCompare() {
         imageView=new BeforeAfterView(this);
         stage.addView(imageView,new FrameLayout.LayoutParams(-1,-1));
-        status.setText("Перемещайте разделитель по изображению");
+        status.setText(previewUnverified?"Быстрый визуальный образец · не финальный экспорт":"Перемещайте разделитель по изображению");
         io.execute(()->{
             Bitmap left=decode(source),right=decode(Uri.fromFile(new File(parts.get(0))));
             runOnUiThread(()->{
