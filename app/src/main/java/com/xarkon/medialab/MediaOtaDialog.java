@@ -21,6 +21,7 @@ public final class MediaOtaDialog {
  private final OtaRingView ring;
  private final ScrollView history;
  private final int accent, themeMode;
+ private final boolean motionEnabled;
  private android.animation.ValueAnimator numberAnimation;
  private int displayedProgress=0;
  private long receivedBytes=0L;
@@ -46,7 +47,9 @@ public final class MediaOtaDialog {
  }
  public MediaOtaDialog(Activity a,int tint){
   activity=a;accent=tint;int mode=a.getPreferences(0).getInt("theme",0);
-  themeMode=mode;boolean light=mode==2;int fg=light?0xff182633:Color.WHITE;
+  themeMode=mode;
+  motionEnabled=a.getPreferences(0).getBoolean("motion",true);
+  boolean light=mode==2;int fg=light?0xff182633:Color.WHITE;
   int muted=light?0xff607589:0xffa4b4c3;
   dialog=new Dialog(a);dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
   LinearLayout root=new LinearLayout(a);root.setOrientation(1);
@@ -57,6 +60,7 @@ public final class MediaOtaDialog {
   FrameLayout ringFrame=new FrameLayout(a);
   ringFrame.setBackground(bg((tint&0x00ffffff)|0x22000000,0));
   ring=new OtaRingView(a,tint);
+  ring.setMotionEnabled(motionEnabled);
   ringFrame.addView(ring,new FrameLayout.LayoutParams(dp(33),dp(33),Gravity.CENTER));
   header.addView(ringFrame,spinLp);
   title=label("Обновление MediaLAB",20,fg);title.setTypeface(null,Typeface.BOLD);
@@ -214,7 +218,7 @@ public final class MediaOtaDialog {
    percent.setText("");ring.setChecking(dialog.isShowing());return;
   }
   final long fromBytes=Math.min(displayedBytes,done);
-  if(!dialog.isShowing()||!android.animation.ValueAnimator.areAnimatorsEnabled()){
+  if(!dialog.isShowing()||!motionEnabled||!android.animation.ValueAnimator.areAnimatorsEnabled()){
    renderDownload(done,total);return;
   }
   numberAnimation=android.animation.ValueAnimator.ofFloat(0f,1f);
@@ -231,7 +235,7 @@ public final class MediaOtaDialog {
   int ratio=(int)Math.min(1000d,Math.max(0d,loaded*1000d/total));
   displayedProgress=ratio;
   progress.setProgress(ratio);ring.setProgressFraction(ratio/1000f);
-  percent.setText(ratio/10+"%");
+  percent.setText(String.format(Locale.forLanguageTag("ru"),"%.1f%%",ratio/10.0));
   bytes.setContentDescription(ConvertEngine.humanBytes(loaded)+" / "+ConvertEngine.humanBytes(total));
   bytes.setText(ConvertEngine.humanBytes(loaded)+" / "+ConvertEngine.humanBytes(total));
  }

@@ -12,6 +12,14 @@ public final class OtaRingView extends View {
     private float progress=0f;
     private float rotation=0f;
     private boolean checking=false;
+    private boolean motionEnabled=true;
+    public void setMotionEnabled(boolean enabled){
+        if(motionEnabled==enabled)return;
+        motionEnabled=enabled;
+        boolean wasChecking=checking;
+        setChecking(false);
+        if(wasChecking)setChecking(true);
+    }
     private boolean resumeOnAttach=false;
     private android.animation.ValueAnimator idleAnimation;
     public OtaRingView(Context context,int color){
@@ -27,7 +35,7 @@ public final class OtaRingView extends View {
         if(idleAnimation!=null){idleAnimation.cancel();idleAnimation=null;}
         this.checking=checking;
         if(!checking)rotation=0f;
-        if(checking && android.animation.ValueAnimator.areAnimatorsEnabled()){
+        if(checking && motionEnabled && android.animation.ValueAnimator.areAnimatorsEnabled()){
             idleAnimation=android.animation.ValueAnimator.ofFloat(0f,360f);
             idleAnimation.setDuration(1100);
             idleAnimation.setRepeatCount(android.animation.ValueAnimator.INFINITE);
