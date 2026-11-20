@@ -331,7 +331,7 @@ public final class MainActivity extends Activity {
         finish.setOnClickListener(v -> {if(openSettingsDialog!=null)openSettingsDialog.dismiss();});
         top.addView(finish);
         body.addView(top,boxLp(-1,dp(48),6));
-        body.addView(txt("MEDIALAB  /  QR LINK STYLE",10,SECONDARY,true),boxLp(-1,-2,20));
+        body.addView(txt("MEDIALAB  /  НАСТРОЙКИ",10,SECONDARY,true),boxLp(-1,-2,20));
 
         LinearLayout appearance = settingsGroup(body,"Тема оформления","Тёмная · AMOLED · Светлая", android.R.drawable.ic_menu_view);
         LinearLayout themes = horizontal();
