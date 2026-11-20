@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class AvifUltraPack {
     private static final String NAME="libmedialab_avif_ultra.so";
     private static final String URL="https://github.com/INFEND/MEDIALAB/releases/download/v1.3.69/avif-ultra-arm64-v1.so";
+    private static boolean approvedUrl(String url){return url!=null&&url.matches("https://github\\.com/INFEND/MEDIALAB/releases/download/v1\\.3\\.(?:[6-9][0-9]|[1-9][0-9]{2,})/avif-ultra-arm64-v1\\.so");}
     private static final AtomicBoolean restart=new AtomicBoolean();
     private static volatile boolean loaded;
     private static volatile boolean checked;
@@ -25,7 +26,7 @@ final class AvifUltraPack {
             }
             JSONObject j=new JSONObject(out.toString("UTF-8"));
             bytes=j.getLong("bytes");hash=j.getString("sha256");url=j.getString("url");
-            if(j.getInt("api")!=1||!"arm64-v8a".equals(j.getString("abi"))||!URL.equals(url)||
+            if(j.getInt("api")!=1||!"arm64-v8a".equals(j.getString("abi"))||!approvedUrl(url)||
                 bytes<=0||bytes>32L*1024*1024||!hash.matches("[0-9a-f]{64}"))throw new IOException("Некорректный манифест AVIF ULTRA");
         }
     }
