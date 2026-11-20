@@ -289,7 +289,17 @@ public final class OtaUpdater {
                     temp.delete();throw new IOException("Версия APK не совпадает с манифестом");
                 }
                 try{checkSigner(a,temp);}catch(Exception invalid){temp.delete();throw invalid;}
-                java.nio.file.Files.move(temp.toPath(),target.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING,java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                try {
+                    java.nio.file.Files.move(temp.toPath(),target.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                } catch(java.nio.file.AtomicMoveNotSupportedException unsupported) {
+                    // Both files live in the same private OTA directory. Some Android
+                    // filesystems cannot guarantee atomic rename; a verified APK
+                    // must still be installable rather than trapping Retry forever.
+                    java.nio.file.Files.move(temp.toPath(),target.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
                 main.post(()->finish(d->d.ready(release.name,()->withOwner((host,dialog)->verifyAndInstall(host,release,dialog)))));
             }catch(Exception e){
                 String message=e.getMessage()==null?"Ошибка загрузки":e.getMessage();
