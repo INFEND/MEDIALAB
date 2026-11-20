@@ -29,7 +29,7 @@ public final class OtaUpdater {
     private static final String MANIFEST="https://github.com/INFEND/MEDIALAB/releases/latest/download/update.json";
     private static final String REPO_PREFIX="https://github.com/INFEND/MEDIALAB/releases/download/";
     private static final long MAX_SIZE=450L*1024L*1024L;
-    static final int MAX_MANIFEST_BYTES=512*1024;
+    static final int MAX_MANIFEST_BYTES=4*1024*1024; // cumulative history across skipped releases
     private static final ExecutorService worker=Executors.newSingleThreadExecutor();
     private static final Handler main=new Handler(Looper.getMainLooper());
     static File file(android.content.Context c){File dir=new File(c.getFilesDir(),"ota");return new File(dir,"MediaLAB-update.apk");}
@@ -45,7 +45,7 @@ public final class OtaUpdater {
             url=j.getString("apkUrl");sha=j.getString("sha256").toLowerCase(Locale.US);notes=j.optString("notes","");
             history=j.optJSONArray("history");
             if(code<1 || size<100000 || size>MAX_SIZE || !sha.matches("[0-9a-f]{64}") ||
-               !name.matches("[A-Za-z0-9._-]{1,40}") || notes.length()>6000 ||
+               !name.matches("[A-Za-z0-9._-]{1,40}") || notes.length()>100_000 ||
                !url.equals(REPO_PREFIX+"v"+name+"/MediaLAB.apk"))
                 throw new IOException("Манифест OTA повреждён или источник неофициальный");
         }
@@ -69,7 +69,7 @@ public final class OtaUpdater {
                 if(code<=0 || code>release.code || code<=previousCode ||
                    (previousCode>0 && code!=previousCode+1) ||
                    !title.matches("[A-Za-z0-9._-]{1,40}") || !names.add(title) ||
-                   body.trim().isEmpty() || body.length()>6000)return incompleteHistory(release,installed);
+                   body.trim().isEmpty() || body.length()>100_000)return incompleteHistory(release,installed);
                 previousCode=code;
                 if(code<=installed)continue;
                 if(code!=lastShown+1)return incompleteHistory(release,installed);
