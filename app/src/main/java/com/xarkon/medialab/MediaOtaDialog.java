@@ -214,6 +214,7 @@ public final class MediaOtaDialog {
    if(total>0 && done>total)return;
   receivedBytes=done;expectedBytes=total;sampleRate(done,total);
   state=State.DOWNLOAD;
+  primary.setEnabled(true);
   primary.setText("ОТМЕНИТЬ");primary.setVisibility(cancelDownload==null?View.GONE:View.VISIBLE);
   primary.setOnClickListener(v->{if(cancelDownload!=null){primary.setEnabled(false);cancelDownload.run();}});
   secondary.setText("СКРЫТЬ");
@@ -263,7 +264,17 @@ public final class MediaOtaDialog {
   else {progress.setProgress(0);ring.setProgressFraction(0f);bytes.setText(ConvertEngine.humanBytes(saved));percent.setText("");}
   secondary.setText("ПОЗЖЕ");primary.setText("ПРОДОЛЖИТЬ");
   primary.setVisibility(resume==null?View.GONE:View.VISIBLE);
-  primary.setOnClickListener(v->{if(resume!=null)resume.run();});
+  primary.setOnClickListener(v->{
+   if(resume==null||state!=State.PAUSED)return;
+   // Explicitly leave PAUSED before the first resumed Range callback arrives.
+   // Otherwise downloading() rejects every progress event from the resumed request.
+   state=State.OFFER;
+   primary.setEnabled(false);
+   stageLabel.setText("Возобновление загрузки…");
+   detail.setText("Подключение к серверу и проверка сохранённого диапазона");
+   resetRate();
+   resume.run();
+  });
   constrainWindowHeight();
  }
  public void ready(String version,Runnable install){
