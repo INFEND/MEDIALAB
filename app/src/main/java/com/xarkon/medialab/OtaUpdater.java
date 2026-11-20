@@ -264,7 +264,8 @@ public final class OtaUpdater {
                     }
                     try {
                         if(conn.getResponseCode()==206){
-                            String expected="bytes "+offset+"-"+(release.size-1)+"/"+release.size;
+                            // Use the effective offset: HTTP 416 recovery may have restarted at zero.
+                            String expected="bytes "+got+"-"+(release.size-1)+"/"+release.size;
                             if(!expected.equals(conn.getHeaderField("Content-Range"))){
                                 temp.delete();
                                 throw new IOException("Неверный диапазон загрузки APK");
