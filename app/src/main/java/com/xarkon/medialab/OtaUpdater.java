@@ -157,6 +157,11 @@ public final class OtaUpdater {
         active=null;owner.clear();
     }
     private static boolean busy;
+    private static final java.util.concurrent.atomic.AtomicBoolean cancelDownload=new java.util.concurrent.atomic.AtomicBoolean(false);
+    private static void requestCancel(){cancelDownload.set(true);}
+    private static void checkCanceled() throws IOException {
+        if(cancelDownload.get())throw new IOException("Загрузка остановлена. Нажмите «Повторить», чтобы продолжить с сохранённого места.");
+    }
     private static String sessionNotes="";
     private static java.util.function.Consumer<MediaOtaDialog> snapshot;
     private static void publish(java.util.function.Consumer<MediaOtaDialog> state){
@@ -179,6 +184,7 @@ public final class OtaUpdater {
         }
         if(existing!=null)existing.dismiss();
         MediaOtaDialog ui=new MediaOtaDialog(a,accent);
+        ui.setCancelDownload(OtaUpdater::requestCancel);
         owner=new java.lang.ref.WeakReference<>(a);active=ui;
         ui.show();
         if(snapshot!=null){ui.setHistory(sessionNotes);snapshot.accept(ui);if(busy||!ui.needsRefresh())return;}
@@ -215,6 +221,7 @@ public final class OtaUpdater {
     }
     private static void download(Activity a,Release release,MediaOtaDialog ui){
         if(busy)return;
+        cancelDownload.set(false);
         busy=true;publish(d->d.stage("Подготовка загрузки…","MediaLAB "+release.name));
         worker.execute(()->{
             File target=file(a),temp=new File(target.getParentFile(),"MediaLAB-candidate-"+release.sha+".apk");
@@ -249,6 +256,7 @@ public final class OtaUpdater {
                 if(target.getParentFile().getUsableSpace()<release.size-offset+4L*1024*1024)
                     throw new IOException("Недостаточно места для обновления");
                 long got=offset;
+                checkCanceled();
                 if(offset<release.size){
                     HttpURLConnection conn;
                     try {
@@ -277,7 +285,11 @@ public final class OtaUpdater {
                         long lastUi=0;int lastTenth=-1;
                         try(InputStream in=conn.getInputStream();OutputStream out=new FileOutputStream(temp,got>0)){
                             byte[] b=new byte[65536];int n;
-                            while((n=in.read(b))!=-1){
+                            while(true){
+                                checkCanceled();
+                                n=in.read(b);
+                                if(n==-1)break;
+                                checkCanceled();
                                 if(n>release.size-got){temp.delete();throw new IOException("Неверный размер APK");}
                                 out.write(b,0,n);got+=n;
                                 // Report actual tenths of a percent to the themed OTA dialog.
@@ -291,6 +303,7 @@ public final class OtaUpdater {
                         }
                     }finally{conn.disconnect();}
                 }
+                checkCanceled();
                 if(got!=release.size)throw new IOException("Загрузка прервана. Повторите для продолжения.");
                 main.post(()->publish(d->d.verifying("Проверка SHA-256 APK…","Проверяем целостность загруженного файла")));
                 if(!release.sha.equals(hash(temp))){
