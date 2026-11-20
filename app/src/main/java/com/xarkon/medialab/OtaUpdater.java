@@ -159,8 +159,11 @@ public final class OtaUpdater {
     private static boolean busy;
     private static final java.util.concurrent.atomic.AtomicBoolean cancelDownload=new java.util.concurrent.atomic.AtomicBoolean(false);
     private static void requestCancel(){cancelDownload.set(true);}
+    private static final class DownloadCanceled extends IOException {
+        DownloadCanceled(){super("Загрузка остановлена пользователем");}
+    }
     private static void checkCanceled() throws IOException {
-        if(cancelDownload.get())throw new IOException("Загрузка остановлена. Нажмите «Повторить», чтобы продолжить с сохранённого места.");
+        if(cancelDownload.get())throw new DownloadCanceled();
     }
     private static String sessionNotes="";
     private static java.util.function.Consumer<MediaOtaDialog> snapshot;
@@ -329,8 +332,17 @@ public final class OtaUpdater {
                 }
                 main.post(()->finish(d->d.ready(release.name,()->withOwner((host,dialog)->verifyAndInstall(host,release,dialog)))));
             }catch(Exception e){
-                String message=e.getMessage()==null?"Ошибка загрузки":e.getMessage();
-                main.post(()->finish(d->d.fail(message,()->withOwner((host,dialog)->download(host,release,dialog)))));
+                if(e instanceof DownloadCanceled || cancelDownload.get()){
+                    // The current output stream is closed by try-with-resources before this
+                    // snapshot is measured. Never discard the digest-bound partial APK.
+                    long saved=temp.isFile()?Math.min(temp.length(),release.size):0;
+                    main.post(()->finish(d->d.paused(saved,release.size,
+                        ()->withOwner((host,dialog)->download(host,release,dialog)))));
+                }else{
+                    String message=e.getMessage()==null?"Ошибка загрузки":e.getMessage();
+                    main.post(()->finish(d->d.fail(message,
+                        ()->withOwner((host,dialog)->download(host,release,dialog)))));
+                }
             }
         });
     }

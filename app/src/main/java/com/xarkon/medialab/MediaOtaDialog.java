@@ -29,7 +29,7 @@ public final class MediaOtaDialog {
  private long displayedBytes=0L;
  private long rateBytes=-1L,rateTime=0L;
  private double rate=0d;
- private enum State { CHECK, OFFER, DOWNLOAD, VERIFY, READY, CURRENT, ERROR }
+ private enum State { CHECK, OFFER, DOWNLOAD, PAUSED, VERIFY, READY, CURRENT, ERROR }
  private State state=State.CHECK;
  private Runnable cancelDownload;
  private int dp(int n){return (int)(n*activity.getResources().getDisplayMetrics().density+.5f);}
@@ -206,7 +206,7 @@ public final class MediaOtaDialog {
  }
  public void setCancelDownload(Runnable action){cancelDownload=action;}
  public void downloading(long done,long total){
-  if(done<0||state==State.VERIFY||state==State.READY||state==State.ERROR||state==State.CURRENT)return;
+  if(done<0||state==State.PAUSED||state==State.VERIFY||state==State.READY||state==State.ERROR||state==State.CURRENT)return;
   // Ignore stale callbacks from an earlier transfer and keep progress monotonic.
   // A server may supply the final length after an initially unknown total.
   if(state==State.DOWNLOAD && total>0 && expectedBytes>0 && total!=expectedBytes)return;
@@ -249,6 +249,23 @@ public final class MediaOtaDialog {
   bytes.setText(ConvertEngine.humanBytes(loaded)+" / "+ConvertEngine.humanBytes(total));
  }
 
+ /** A user cancellation is not a network error. Keep the exact verified-range
+   * progress visible, and offer an explicit resume action. */
+ public void paused(long saved,long total,Runnable resume){
+  state=State.PAUSED;resetRate();primary.setEnabled(true);
+  if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
+  ring.setChecking(false);progress.setIndeterminate(false);
+  title.setText("Загрузка приостановлена");
+  stageLabel.setText("Загрузка остановлена");
+  detail.setText("Скачанная часть APK сохранена. Можно продолжить с места остановки.");
+  receivedBytes=Math.max(0,saved);expectedBytes=total;
+  if(total>0&&saved<=total)renderDownload(saved,total);
+  else {progress.setProgress(0);ring.setProgressFraction(0f);bytes.setText(ConvertEngine.humanBytes(saved));percent.setText("");}
+  secondary.setText("ПОЗЖЕ");primary.setText("ПРОДОЛЖИТЬ");
+  primary.setVisibility(resume==null?View.GONE:View.VISIBLE);
+  primary.setOnClickListener(v->{if(resume!=null)resume.run();});
+  constrainWindowHeight();
+ }
  public void ready(String version,Runnable install){
   state=State.READY;resetRate();primary.setEnabled(true);
   title.setText("Обновление загружено");stageLabel.setText("Готово к установке");detail.setText("MediaLAB "+version+" · APK проверен");
