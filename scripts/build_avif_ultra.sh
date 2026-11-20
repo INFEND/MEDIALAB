@@ -8,7 +8,13 @@ PACK="$OUT/avif-ultra-arm64-v1.so"
 URL="https://github.com/INFEND/MEDIALAB/releases/download/v1.3.69/avif-ultra-arm64-v1.so"
 mkdir -p "$ASSETS"
 VERSION="$(sed -n 's/.*versionName "\([^"]*\)".*/\1/p' app/build.gradle | head -1)"
-if [[ "$VERSION" == 1.3.69 ]]; then
+rm -f "$OUT/publish-with-current"
+if curl --fail --location --retry 1 --connect-timeout 15 --output "$PACK" "$URL"; then
+  echo "Using published AVIF ULTRA module"
+else
+  echo "Published AVIF ULTRA module missing; rebuilding pinned source for v$VERSION"
+  URL="https://github.com/INFEND/MEDIALAB/releases/download/v$VERSION/avif-ultra-arm64-v1.so"
+  touch "$OUT/publish-with-current"
   AVIF="$OUT/src/libavif"
   mkdir -p "$OUT/src"
   if [[ ! -d "$AVIF/.git" ]]; then git init -q "$AVIF"; git -C "$AVIF" remote add origin https://github.com/AOMediaCodec/libavif.git; fi
@@ -39,8 +45,6 @@ if [[ "$VERSION" == 1.3.69 ]]; then
     printf '\n--- libaom ---\n'; cat "$AOM/LICENSE" "$AOM/PATENTS"
     printf '\n--- Android NDK ---\n'; cat "$NDK/NOTICE"
   } > "$OUT/avif-ultra-licenses.txt"
-else
-  curl --fail --location --retry 4 --output "$PACK" "$URL"
 fi
 python3 - "$PACK" "$ASSETS/avif-ultra.json" "$URL" <<'PY'
 import hashlib,json,pathlib,subprocess,sys,re
