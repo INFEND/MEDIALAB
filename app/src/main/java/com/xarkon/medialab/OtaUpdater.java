@@ -158,7 +158,14 @@ public final class OtaUpdater {
     }
     private static boolean busy;
     private static final java.util.concurrent.atomic.AtomicBoolean cancelDownload=new java.util.concurrent.atomic.AtomicBoolean(false);
-    private static void requestCancel(){cancelDownload.set(true);}
+    // Disconnect an active read immediately: an atomic flag alone cannot wake a
+    // blocking InputStream.read() until the network timeout expires.
+    private static volatile HttpURLConnection activeDownloadConnection;
+    private static void requestCancel(){
+        cancelDownload.set(true);
+        HttpURLConnection connection=activeDownloadConnection;
+        if(connection!=null)connection.disconnect();
+    }
     private static final class DownloadCanceled extends IOException {
         DownloadCanceled(){super("Загрузка остановлена пользователем");}
     }
@@ -273,7 +280,9 @@ public final class OtaUpdater {
                         got=0;
                         conn=(HttpURLConnection)connection(release.url,0);
                     }
+                    activeDownloadConnection=conn;
                     try {
+                        checkCanceled();
                         if(conn.getResponseCode()==206){
                             // Use the effective offset: HTTP 416 recovery may have restarted at zero.
                             // RFC 9110 allows a 206 response to contain only part of the
@@ -304,7 +313,10 @@ public final class OtaUpdater {
                                 }
                             }
                         }
-                    }finally{conn.disconnect();}
+                    }finally{
+                        activeDownloadConnection=null;
+                        conn.disconnect();
+                    }
                 }
                 checkCanceled();
                 if(got!=release.size)throw new IOException("Загрузка прервана. Повторите для продолжения.");
