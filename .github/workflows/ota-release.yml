@@ -132,7 +132,7 @@ jobs:
             cp .gradle/medialab-photo-extra/photo-extra-licenses.txt dist/
             cp .gradle/medialab-photo-extra/photo-extra-Cargo.lock dist/
           fi
-          if [ "${{ steps.metadata.outputs.tag }}" = v1.3.69 ]; then
+          if [ -f .gradle/medialab-avif-ultra/publish-with-current ]; then
             cp .gradle/medialab-avif-ultra/avif-ultra-arm64-v1.so dist/
             cp .gradle/medialab-avif-ultra/avif-ultra-licenses.txt dist/
           fi
