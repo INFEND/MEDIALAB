@@ -302,5 +302,9 @@
   {
     "versionCode": 97,
     "versionName": "1.3.75"
+  },
+  {
+    "versionCode": 98,
+    "versionName": "1.3.76"
   }
 ]
