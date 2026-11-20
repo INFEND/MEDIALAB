@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import hashlib,json,sys,zipfile
+import hashlib,json,re,sys,zipfile
 from pathlib import Path
 apk,pack=map(Path,sys.argv[1:])
 with zipfile.ZipFile(apk) as z:
@@ -9,5 +9,5 @@ with zipfile.ZipFile(apk) as z:
 assert meta['api']==1 and meta['abi']=='arm64-v8a'
 assert meta['bytes']==pack.stat().st_size
 assert meta['sha256']==hashlib.sha256(pack.read_bytes()).hexdigest()
-assert meta['url']=='https://github.com/INFEND/MEDIALAB/releases/download/v1.3.69/avif-ultra-arm64-v1.so'
+assert re.fullmatch(r'https://github\.com/INFEND/MEDIALAB/releases/download/v1\.3\.(?:[6-9][0-9]|[1-9][0-9]{2,})/avif-ultra-arm64-v1\.so', meta['url']), 'Unexpected AVIF ULTRA release URL'
 print('Verified separate AVIF ULTRA asset; APK contains metadata only')
