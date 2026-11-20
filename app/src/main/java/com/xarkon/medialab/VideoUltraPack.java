@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class VideoUltraPack {
     private static final String NAME="libmedialab_video_ultra.so";
     private static final String URL="https://github.com/INFEND/MEDIALAB/releases/download/v1.3.68/video-ultra-arm64-v1.so";
-    private static boolean approvedUrl(String url){return URL.equals(url)||URL.replace("/v1.3.68/","/v1.3.68/").equals(url)||URL.replace("/v1.3.68/","/v1.3.69/").equals(url);}
+    private static boolean approvedUrl(String url){return url!=null&&url.matches("https://github\\.com/INFEND/MEDIALAB/releases/download/v1\\.3\\.(?:[6-9][0-9]|[1-9][0-9]{2,})/video-ultra-arm64-v1\\.so");}
     private static final AtomicBoolean restart=new AtomicBoolean();
     private static volatile boolean loaded;
     private static volatile boolean checked;
