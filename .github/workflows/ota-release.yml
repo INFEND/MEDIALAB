@@ -69,6 +69,8 @@ jobs:
           python3 scripts/test_video_sample.py
           python3 scripts/test_asc_full.py
           bash scripts/test_resumable_modules.sh
+          javac -d /tmp/medialab-ota-range-test app/src/main/java/com/xarkon/medialab/OtaContentRange.java scripts/TestOtaContentRange.java
+          java -cp /tmp/medialab-ota-range-test com.xarkon.medialab.TestOtaContentRange
           javac -d /tmp/medialab-photo-preview-test app/src/main/java/com/xarkon/medialab/PhotoPreviewPlan.java scripts/TestPhotoPreviewPlan.java
           java -cp /tmp/medialab-photo-preview-test com.xarkon.medialab.TestPhotoPreviewPlan
 
