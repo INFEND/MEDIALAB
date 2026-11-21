@@ -169,6 +169,9 @@ public final class MediaOtaDialog {
  public void stage(String message,String hint){
   renderStage(State.CHECK,message,hint);
  }
+ public void preparing(String message,String hint){
+  renderStage(State.DOWNLOAD,message,hint);
+ }
  public void verifying(String message,String hint){
   renderStage(State.VERIFY,message,hint);
  }
