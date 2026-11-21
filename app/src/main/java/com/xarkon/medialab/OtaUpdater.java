@@ -353,10 +353,13 @@ public final class OtaUpdater {
                             }
                         }
                         if(got<=responseEnd){
-                            // A truncated 206 body is not a completed response, even
-                            // when its transfer length is unknown. Keep partial bytes
-                            // for the next retry, never treat this range as verified.
-                            throw new IOException("Неполный ответ HTTP 206/200");
+                            // Some CDNs terminate a partial 206 body early. Preserve only
+                            // the bytes actually received and request the next range in
+                            // this session. The outer 128-response limit bounds retries.
+                            // A truncated full 200 response is different: retrying it
+                            // without Range support would repeatedly restart at zero.
+                            if(conn.getResponseCode()!=206 || got<=beforeResponse)
+                                throw new IOException("Неполный ответ HTTP 206/200");
                         }
                     }finally{
                         activeDownloadConnection=null;
