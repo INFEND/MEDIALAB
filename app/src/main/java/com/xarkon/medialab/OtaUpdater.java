@@ -286,19 +286,23 @@ public final class OtaUpdater {
                     throw new IOException("Недостаточно места для обновления");
                 long got=offset;
                 checkCanceled();
-                if(offset<release.size){
+                int partialResponses=0;
+                while(got<release.size){
+                    checkCanceled();
+                    if(++partialResponses>128)throw new IOException("Слишком много частичных ответов OTA");
                     HttpURLConnection conn;
                     try {
-                        conn=(HttpURLConnection)connection(release.url,offset);
+                        conn=(HttpURLConnection)connection(release.url,got);
                     } catch(IOException rangeError) {
                         // A stale partial file may no longer be accepted by the CDN.
                         // Retry once from byte zero rather than trapping every Retry on HTTP 416.
-                        if(offset<=0 || !"Ошибка HTTP 416".equals(rangeError.getMessage()))
+                        if(got<=0 || !"Ошибка HTTP 416".equals(rangeError.getMessage()))
                             throw rangeError;
                         if(!temp.delete())throw new IOException("Не удалось сбросить устаревшую загрузку",rangeError);
                         got=0;
                         conn=(HttpURLConnection)connection(release.url,0);
                     }
+                    long beforeResponse=got;
                     activeDownloadConnection=conn;
                     try {
                         checkCanceled();
@@ -317,7 +321,7 @@ public final class OtaUpdater {
                         // with 416. Reset the dialog before reporting zero bytes;
                         // otherwise its monotonic guard rejects progress below the
                         // previously saved offset.
-                        final boolean restartedFromZero=offset>0 && initial==0;
+                        final boolean restartedFromZero=got>0 && initial==0;
                         main.post(()->{
                             if(restartedFromZero)publish(d->d.restartingFromZero(release.size));
                             publish(d->d.downloading(initial,release.size));
@@ -345,6 +349,8 @@ public final class OtaUpdater {
                         activeDownloadConnection=null;
                         conn.disconnect();
                     }
+                    if(got<=beforeResponse && got<release.size)
+                        throw new IOException("Сервер не передал данные APK");
                 }
                 checkCanceled();
                 if(got!=release.size)throw new IOException("Загрузка прервана. Повторите для продолжения.");
