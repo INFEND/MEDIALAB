@@ -306,7 +306,8 @@ public final class OtaUpdater {
                             // Use the effective offset: HTTP 416 recovery may have restarted at zero.
                             // RFC 9110 allows a 206 response to contain only part of the
                             // remaining bytes. Validate its start/total, not a forced EOF.
-                            if(!OtaContentRange.matches(conn.getHeaderField("Content-Range"),got,release.size)){
+                            if(!OtaContentRange.matches(conn.getHeaderField("Content-Range"),got,release.size) ||
+                               !OtaContentRange.lengthMatches(conn.getHeaderField("Content-Range"),conn.getContentLengthLong())){
                                 temp.delete();
                                 throw new IOException("Неверный диапазон загрузки APK");
                             }
