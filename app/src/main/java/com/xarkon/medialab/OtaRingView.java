@@ -34,7 +34,9 @@ public final class OtaRingView extends View {
         if(this.checking==checking && (idleAnimation!=null || !checking))return;
         if(idleAnimation!=null){idleAnimation.cancel();idleAnimation=null;}
         this.checking=checking;
-        if(!checking)rotation=0f;
+        // A stage may change while the dialog is detached. Do not resurrect
+        // a stale spinner when the view is attached again.
+        if(!checking) { rotation=0f; resumeOnAttach=false; }
         if(checking && motionEnabled && android.animation.ValueAnimator.areAnimatorsEnabled()){
             idleAnimation=android.animation.ValueAnimator.ofFloat(0f,360f);
             idleAnimation.setDuration(1100);
@@ -51,8 +53,9 @@ public final class OtaRingView extends View {
         else invalidate();
     }
     @Override protected void onDetachedFromWindow(){
-        resumeOnAttach=checking;
+        boolean restart=checking;
         setChecking(false);
+        resumeOnAttach=restart;
         super.onDetachedFromWindow();
     }
     @Override protected void onDraw(Canvas canvas){
