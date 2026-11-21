@@ -302,7 +302,7 @@ public final class OtaUpdater {
                         got=0;
                         conn=(HttpURLConnection)connection(release.url,0);
                     }
-                    long beforeResponse=got;
+                    long beforeResponse=conn.getResponseCode()==206?got:0;
                     activeDownloadConnection=conn;
                     try {
                         checkCanceled();
