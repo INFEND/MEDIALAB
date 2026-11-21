@@ -378,5 +378,21 @@
   {
     "versionCode": 116,
     "versionName": "1.3.94"
+  },
+  {
+    "versionCode": 117,
+    "versionName": "1.3.95"
+  },
+  {
+    "versionCode": 118,
+    "versionName": "1.3.96"
+  },
+  {
+    "versionCode": 119,
+    "versionName": "1.3.97"
+  },
+  {
+    "versionCode": 120,
+    "versionName": "1.3.98"
   }
 ]
