@@ -178,8 +178,9 @@ public final class MediaOtaDialog {
   bytes.setContentDescription(null);
   stageLabel.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
   receivedBytes=0L;expectedBytes=-1L;displayedBytes=0L;
-  // A new check must not display release notes from an earlier offer.
-  history.setVisibility(View.GONE);
+  // Only a fresh server check invalidates the previous offer. Preserve the
+  // verified release notes while preparing, downloading and verifying its APK.
+  if(next==State.CHECK)history.setVisibility(View.GONE);
   progress.setIndeterminate(true);secondary.setText("СКРЫТЬ");
   primary.setVisibility(View.GONE);bytes.setText("");percent.setText("");
   constrainWindowHeight();
