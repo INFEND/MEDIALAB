@@ -290,6 +290,7 @@ public final class OtaUpdater {
                 while(got<release.size){
                     checkCanceled();
                     if(++partialResponses>128)throw new IOException("Слишком много частичных ответов OTA");
+                    long requestedOffset=got;
                     HttpURLConnection conn;
                     try {
                         conn=(HttpURLConnection)connection(release.url,got);
@@ -321,7 +322,7 @@ public final class OtaUpdater {
                         // with 416. Reset the dialog before reporting zero bytes;
                         // otherwise its monotonic guard rejects progress below the
                         // previously saved offset.
-                        final boolean restartedFromZero=got>0 && initial==0;
+                        final boolean restartedFromZero=requestedOffset>0 && initial==0;
                         main.post(()->{
                             if(restartedFromZero)publish(d->d.restartingFromZero(release.size));
                             publish(d->d.downloading(initial,release.size));
