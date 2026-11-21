@@ -236,7 +236,7 @@ public final class OtaUpdater {
         if(busy)return;
         cancelDownload.set(false);
         busy=true;
-        if(!resumed)publish(d->d.stage("Подготовка загрузки…","MediaLAB "+release.name));
+        if(!resumed)publish(d->d.preparing("Подготовка загрузки…","MediaLAB "+release.name));
         worker.execute(()->{
             File target=file(a),temp=new File(target.getParentFile(),"MediaLAB-candidate-"+release.sha+".apk");
             try{
@@ -265,7 +265,7 @@ public final class OtaUpdater {
                     if(!validCache && !target.delete())
                         throw new IOException("Не удалось удалить повреждённый APK");
                     // Reset VERIFY before reporting progress from a fresh transfer.
-                    main.post(()->publish(d->d.stage("Подготовка загрузки…","MediaLAB "+release.name)));
+                    main.post(()->publish(d->d.preparing("Подготовка загрузки…","MediaLAB "+release.name)));
                 }
                 // Partial files are bound to the exact manifest digest, never reused across releases.
                 File[] stale=target.getParentFile().listFiles();
