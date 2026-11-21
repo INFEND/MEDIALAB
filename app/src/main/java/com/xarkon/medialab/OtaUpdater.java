@@ -245,19 +245,25 @@ public final class OtaUpdater {
                 // Reuse a completed download after reopening the updater or recreating the Activity.
                 if(target.isFile() && target.length()==release.size){
                     main.post(()->publish(d->d.verifying("Проверка APK…","Проверяем ранее загруженное обновление")));
-                    if(release.sha.equals(hash(target))){
+                    boolean validCache=release.sha.equals(hash(target));
+                    if(validCache){
                         PackageInfo cached=a.getPackageManager().getPackageArchiveInfo(target.getAbsolutePath(),0);
-                        if(cached!=null && cached.getLongVersionCode()==release.code && release.name.equals(cached.versionName)){
+                        validCache=cached!=null && cached.getLongVersionCode()==release.code
+                            && release.name.equals(cached.versionName);
+                        if(validCache){
                             try {
                                 checkSigner(a,target);
                                 main.post(()->finish(d->d.ready(release.name,()->withOwner((host,dialog)->verifyAndInstall(host,release,dialog)))));
                                 return;
                             } catch(Exception invalidCache) {
-                                // A cached APK must never trap Retry in the same invalid file.
-                                if(!target.delete())throw new IOException("Не удалось удалить повреждённый APK",invalidCache);
+                                validCache=false;
                             }
                         }
                     }
+                    // A wrong hash, version or signature must never leave an orphaned
+                    // full-sized APK consuming space during the replacement download.
+                    if(!validCache && !target.delete())
+                        throw new IOException("Не удалось удалить повреждённый APK");
                     // Reset VERIFY before reporting progress from a fresh transfer.
                     main.post(()->publish(d->d.stage("Подготовка загрузки…","MediaLAB "+release.name)));
                 }
@@ -266,7 +272,16 @@ public final class OtaUpdater {
                 if(stale!=null)for(File old:stale)
                     if(old.getName().startsWith("MediaLAB-candidate")&&!old.equals(temp))old.delete();
                 long offset=temp.isFile()?temp.length():0;
-                if(offset>release.size){temp.delete();offset=0;}
+                if(offset>release.size){
+                    if(!temp.delete())throw new IOException("Не удалось сбросить повреждённую загрузку");
+                    offset=0;
+                }
+                // A completed candidate with a bad digest must be discarded before
+                // retrying. Otherwise Retry hashes the same corrupt file forever.
+                if(offset==release.size && !release.sha.equals(hash(temp))){
+                    if(!temp.delete())throw new IOException("Не удалось удалить повреждённую загрузку");
+                    offset=0;
+                }
                 if(target.getParentFile().getUsableSpace()<release.size-offset+4L*1024*1024)
                     throw new IOException("Недостаточно места для обновления");
                 long got=offset;
