@@ -290,6 +290,24 @@ public final class MediaOtaDialog {
   primary.setOnClickListener(v->{if(cancelDownload!=null){primary.setEnabled(false);cancelDownload.run();}});
   secondary.setText("СКРЫТЬ");
  }
+ /** The server ignored Range (HTTP 200), so the saved partial file is being
+  * replaced from byte zero. Reset the old snapshot before fresh progress arrives. */
+ public void restartingFromZero(long total){
+  state=State.DOWNLOAD;resetRate();
+  if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
+  receivedBytes=0L;displayedBytes=0L;expectedBytes=total;displayedProgress=0;
+  ring.setChecking(false);ring.setProgressFraction(0f);
+  progress.setIndeterminate(total<=0);progress.setProgress(0);
+  bytes.setText(total>0?"0 Б / "+ConvertEngine.humanBytes(total):"0 Б");
+  percent.setText(total>0?"0.0%":"");
+  title.setText("Обновление MediaLAB");
+  stageLabel.setText("Повторная загрузка с начала");
+  detail.setText("Сервер не поддержал продолжение. Сохранённый диапазон заменяется.");
+  primary.setEnabled(true);primary.setText("ОТМЕНИТЬ");
+  primary.setVisibility(cancelDownload==null?View.GONE:View.VISIBLE);
+  primary.setOnClickListener(v->{if(cancelDownload!=null){primary.setEnabled(false);cancelDownload.run();}});
+  secondary.setText("СКРЫТЬ");
+ }
  public void ready(String version,Runnable install){
   state=State.READY;resetRate();primary.setEnabled(true);
   title.setText("Обновление загружено");stageLabel.setText("Готово к установке");detail.setText("MediaLAB "+version+" · APK проверен");
