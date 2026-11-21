@@ -247,7 +247,7 @@ public final class OtaUpdater {
                     main.post(()->publish(d->d.verifying("Проверка APK…","Проверяем ранее загруженное обновление")));
                     if(release.sha.equals(hash(target))){
                         PackageInfo cached=a.getPackageManager().getPackageArchiveInfo(target.getAbsolutePath(),0);
-                        if(cached!=null && cached.getLongVersionCode()==release.code){
+                        if(cached!=null && cached.getLongVersionCode()==release.code && release.name.equals(cached.versionName)){
                             try {
                                 checkSigner(a,target);
                                 main.post(()->finish(d->d.ready(release.name,()->withOwner((host,dialog)->verifyAndInstall(host,release,dialog)))));
@@ -331,7 +331,7 @@ public final class OtaUpdater {
                 }
                 main.post(()->publish(d->d.verifying("Проверка подписи APK…","Сверяем сертификат")));
                 PackageInfo archive=a.getPackageManager().getPackageArchiveInfo(temp.getAbsolutePath(),0);
-                if(archive==null||archive.getLongVersionCode()!=release.code){
+                if(archive==null||archive.getLongVersionCode()!=release.code||!release.name.equals(archive.versionName)){
                     temp.delete();throw new IOException("Версия APK не совпадает с манифестом");
                 }
                 try{checkSigner(a,temp);}catch(Exception invalid){temp.delete();throw invalid;}
@@ -373,7 +373,7 @@ public final class OtaUpdater {
                 checkSigner(a,apk);
                 PackageInfo archive=a.getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(),0);
                 PackageInfo installed=a.getPackageManager().getPackageInfo(a.getPackageName(),0);
-                if(archive==null||archive.getLongVersionCode()!=release.code||archive.getLongVersionCode()<=installed.getLongVersionCode())
+                if(archive==null||archive.getLongVersionCode()!=release.code||!release.name.equals(archive.versionName)||archive.getLongVersionCode()<=installed.getLongVersionCode())
                     throw new IOException("Обновление уже установлено или устарело");
                 main.post(()->{finish(d->d.ready(release.name,()->withOwner((host,dialog)->verifyAndInstall(host,release,dialog))));withOwner((host,dialog)->{if(dialog.canLaunchInstaller())install(host,release,dialog);});});
             }catch(Exception e){
