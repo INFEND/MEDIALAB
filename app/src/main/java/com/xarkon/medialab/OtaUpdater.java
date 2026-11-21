@@ -317,6 +317,10 @@ public final class OtaUpdater {
                                 throw new IOException("Неверный диапазон загрузки APK");
                             }
                         }else got=0; // Server ignored Range: restart safely.
+                        // A chunked 206 body must never exceed its advertised inclusive end.
+                        // For a 200 response the manifest size remains the upper bound.
+                        final long responseEnd=conn.getResponseCode()==206
+                            ?OtaContentRange.end(conn.getHeaderField("Content-Range")):release.size-1;
                         final long initial=got;
                         // A CDN can ignore Range (200), or reject an obsolete partial
                         // with 416. Reset the dialog before reporting zero bytes;
@@ -335,7 +339,9 @@ public final class OtaUpdater {
                                 n=in.read(b);
                                 if(n==-1)break;
                                 checkCanceled();
-                                if(n>release.size-got){temp.delete();throw new IOException("Неверный размер APK");}
+                                if(n>release.size-got || n>responseEnd-got+1){
+                                    temp.delete();throw new IOException("Тело HTTP выходит за Content-Range APK");
+                                }
                                 out.write(b,0,n);got+=n;
                                 // Report actual tenths of a percent to the themed OTA dialog.
                                 int tenth=(int)Math.min(1000d,got*1000d/release.size);
@@ -345,6 +351,12 @@ public final class OtaUpdater {
                                     main.post(()->publish(d->d.downloading(received,release.size)));
                                 }
                             }
+                        }
+                        if(got<=responseEnd){
+                            // A truncated 206 body is not a completed response, even
+                            // when its transfer length is unknown. Keep partial bytes
+                            // for the next retry, never treat this range as verified.
+                            throw new IOException("Неполный ответ HTTP 206/200");
                         }
                     }finally{
                         activeDownloadConnection=null;
