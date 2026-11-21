@@ -297,7 +297,15 @@ public final class OtaUpdater {
                             }
                         }else got=0; // Server ignored Range: restart safely.
                         final long initial=got;
-                        main.post(()->publish(d->d.downloading(initial,release.size)));
+                        // A CDN can ignore Range (200), or reject an obsolete partial
+                        // with 416. Reset the dialog before reporting zero bytes;
+                        // otherwise its monotonic guard rejects progress below the
+                        // previously saved offset.
+                        final boolean restartedFromZero=offset>0 && initial==0;
+                        main.post(()->{
+                            if(restartedFromZero)publish(d->d.restartingFromZero(release.size));
+                            publish(d->d.downloading(initial,release.size));
+                        });
                         long lastUi=0;int lastTenth=-1;
                         try(InputStream in=conn.getInputStream();OutputStream out=new FileOutputStream(temp,got>0)){
                             byte[] b=new byte[65536];int n;
