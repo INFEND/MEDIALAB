@@ -15,4 +15,19 @@ final class OtaContentRange {
             return first==requestedStart&&last>=first&&last<total&&total==expectedTotal;
         }catch(NumberFormatException e){return false;}
     }
+    /** A declared body length must equal the advertised partial range span.
+     * Unknown transfer length (-1) is allowed for chunked HTTPS responses. */
+    static boolean lengthMatches(String header,long contentLength){
+        if(contentLength<0)return true;
+        if(header==null)return false;
+        java.util.regex.Matcher m=java.util.regex.Pattern
+            .compile("bytes ([0-9]+)-([0-9]+)/([0-9]+)").matcher(header);
+        if(!m.matches())return false;
+        try{
+            long first=Long.parseLong(m.group(1));
+            long last=Long.parseLong(m.group(2));
+            return last>=first && last-first<Long.MAX_VALUE &&
+                last-first+1==contentLength;
+        }catch(NumberFormatException error){return false;}
+    }
 }
