@@ -207,7 +207,7 @@ public final class MediaOtaDialog {
   title.setText("Доступно обновление");stageLabel.setText("MediaLAB "+version);detail.setText("Новая версия готова к загрузке");
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
   displayedProgress=0;receivedBytes=0L;expectedBytes=-1L;displayedBytes=0L;
-  ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(1f);
+  ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(0f);
   setHistory(changes);
   primary.setText("ОБНОВИТЬ");primary.setVisibility(View.VISIBLE);
   primary.setOnClickListener(v->{
@@ -332,7 +332,11 @@ public final class MediaOtaDialog {
   ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(1000);ring.setProgressFraction(1f);
   displayedProgress=1000;
   percent.setText("100%");bytes.setText("");secondary.setText("ПОЗЖЕ");primary.setText("УСТАНОВИТЬ");primary.setVisibility(View.VISIBLE);
-  primary.setOnClickListener(v->install.run());
+  primary.setOnClickListener(v->{
+   if(state!=State.READY||!primary.isEnabled()||install==null)return;
+   primary.setEnabled(false);
+   try{install.run();}catch(RuntimeException error){primary.setEnabled(true);throw error;}
+  });
  }
  public void current(String version){
   state=State.CURRENT;resetRate();cancelRequested=false;
