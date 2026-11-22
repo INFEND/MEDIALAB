@@ -357,7 +357,13 @@ public final class MediaOtaDialog {
   progress.setProgress(0);ring.setProgressFraction(0f);
   bytes.setText("");percent.setText("");secondary.setText("ЗАКРЫТЬ");
   primary.setText("ПОВТОРИТЬ");primary.setVisibility(retry==null?View.GONE:View.VISIBLE);
-  primary.setOnClickListener(v->{if(retry!=null)retry.run();});
+  primary.setOnClickListener(v->{
+   // A retry can enqueue a network task before the next state callback arrives.
+   // Dispatch it once, even under rapid taps or a delayed main-thread update.
+   if(state!=State.ERROR||!primary.isEnabled()||retry==null)return;
+   primary.setEnabled(false);
+   try{retry.run();}catch(RuntimeException error){primary.setEnabled(true);throw error;}
+  });
  }
  /** Transfer rate excludes cached/resumed bytes and uses a monotonic clock. */
  private void sampleRate(long done,long total){
