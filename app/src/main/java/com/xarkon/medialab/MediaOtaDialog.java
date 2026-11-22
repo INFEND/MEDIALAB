@@ -287,7 +287,14 @@ public final class MediaOtaDialog {
    // Otherwise downloading() rejects every progress event from the resumed request.
    // Keep the saved byte count and ring while the Range request reconnects.
    reconnecting(saved,total);
-   resume.run();
+   try {
+    resume.run();
+   } catch (RuntimeException failure) {
+    // A synchronous start failure must not strand the dialog in DOWNLOAD
+    // with a nonfunctional cancel action. Restore the resumable PAUSED UI.
+    paused(saved,total,resume);
+    throw failure;
+   }
   });
   constrainWindowHeight();
  }
