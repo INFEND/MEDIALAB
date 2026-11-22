@@ -210,7 +210,13 @@ public final class MediaOtaDialog {
   ring.setChecking(false);progress.setIndeterminate(false);progress.setProgress(0);ring.setProgressFraction(1f);
   setHistory(changes);
   primary.setText("ОБНОВИТЬ");primary.setVisibility(View.VISIBLE);
-  primary.setOnClickListener(v->action.run());secondary.setText("ПОЗЖЕ");
+  primary.setOnClickListener(v->{
+   // Guard the offer synchronously: the updater switches to DOWNLOAD on the
+   // main thread, but a second tap must never dispatch a duplicate request.
+   if(state!=State.OFFER||!primary.isEnabled()||action==null)return;
+   primary.setEnabled(false);
+   try{action.run();}catch(RuntimeException error){primary.setEnabled(true);throw error;}
+  });secondary.setText("ПОЗЖЕ");
   bytes.setText("");percent.setText("");
  }
  public void setCancelDownload(Runnable action){cancelDownload=action;}
