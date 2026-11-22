@@ -212,7 +212,9 @@ public final class MediaOtaDialog {
  }
  public void setCancelDownload(Runnable action){cancelDownload=action;}
  public void downloading(long done,long total){
-  if(done<0||state==State.PAUSED||state==State.VERIFY||state==State.READY||state==State.ERROR||state==State.CURRENT)return;
+  // Progress is valid only after preparing()/reconnecting()/restartingFromZero().
+  // A queued callback from an old transfer must not replace CHECK or OFFER.
+  if(done<0||state!=State.DOWNLOAD)return;
   // Ignore stale callbacks from an earlier transfer and keep progress monotonic.
   // A server may supply the final length after an initially unknown total.
   if(state==State.DOWNLOAD && total>0 && expectedBytes>0 && total!=expectedBytes)return;
