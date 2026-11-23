@@ -222,6 +222,22 @@ public final class MediaOtaDialog {
   bytes.setText("");percent.setText("");
  }
  public void setCancelDownload(Runnable action){cancelDownload=action;}
+ private void requestCancelDownload(){
+  if(cancelDownload==null||cancelRequested||state!=State.DOWNLOAD)return;
+  cancelRequested=true;
+  primary.setEnabled(false);
+  try {
+   cancelDownload.run();
+  } catch(RuntimeException error) {
+   // Cancellation may fail synchronously before the updater reports PAUSED.
+   // Keep the active transfer cancellable instead of crashing the Activity.
+   cancelRequested=false;
+   primary.setEnabled(true);
+   detail.setText("Не удалось остановить загрузку: "+
+    (error.getMessage()==null?"ошибка запуска":error.getMessage()));
+  }
+ }
+
  public void downloading(long done,long total){
   // Progress is valid only after preparing()/reconnecting()/restartingFromZero().
   // A queued callback from an old transfer must not replace CHECK or OFFER.
@@ -235,7 +251,7 @@ public final class MediaOtaDialog {
   state=State.DOWNLOAD;
   primary.setEnabled(!cancelRequested);
   primary.setText("ОТМЕНИТЬ");primary.setVisibility(cancelDownload==null?View.GONE:View.VISIBLE);
-  primary.setOnClickListener(v->{if(cancelDownload!=null&&!cancelRequested){cancelRequested=true;primary.setEnabled(false);cancelDownload.run();}});
+  primary.setOnClickListener(v->{requestCancelDownload();});
   secondary.setText("СКРЫТЬ");
   title.setText("Обновление MediaLAB");stageLabel.setText("Загрузка обновления");detail.setText("Защищённая загрузка MediaLAB");
   // Keep the progress arc determinate, with the numeric indicator synchronized below.
@@ -316,7 +332,7 @@ public final class MediaOtaDialog {
   else {bytes.setText(ConvertEngine.humanBytes(saved));percent.setText("");}
   primary.setText("ОТМЕНИТЬ");primary.setEnabled(true);
   primary.setVisibility(cancelDownload==null?View.GONE:View.VISIBLE);
-  primary.setOnClickListener(v->{if(cancelDownload!=null&&!cancelRequested){cancelRequested=true;primary.setEnabled(false);cancelDownload.run();}});
+  primary.setOnClickListener(v->{requestCancelDownload();});
   secondary.setText("СКРЫТЬ");
  }
  /** The server ignored Range (HTTP 200), so the saved partial file is being
@@ -334,7 +350,7 @@ public final class MediaOtaDialog {
   detail.setText("Сервер не поддержал продолжение. Сохранённый диапазон заменяется.");
   primary.setEnabled(true);primary.setText("ОТМЕНИТЬ");
   primary.setVisibility(cancelDownload==null?View.GONE:View.VISIBLE);
-  primary.setOnClickListener(v->{if(cancelDownload!=null&&!cancelRequested){cancelRequested=true;primary.setEnabled(false);cancelDownload.run();}});
+  primary.setOnClickListener(v->{requestCancelDownload();});
   secondary.setText("СКРЫТЬ");
  }
  public void ready(String version,Runnable install){
