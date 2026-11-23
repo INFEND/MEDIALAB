@@ -293,7 +293,10 @@ public final class MediaOtaDialog {
     // A synchronous start failure must not strand the dialog in DOWNLOAD
     // with a nonfunctional cancel action. Restore the resumable PAUSED UI.
     paused(saved,total,resume);
-    throw failure;
+    // A synchronous reconnect failure must not crash the Activity. Keep the
+    // verified partial download available for a later retry.
+    detail.setText("Не удалось возобновить загрузку: "+
+      (failure.getMessage()==null?"ошибка запуска":failure.getMessage()));
    }
   });
   constrainWindowHeight();
