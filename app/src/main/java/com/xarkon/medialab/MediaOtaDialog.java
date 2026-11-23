@@ -215,7 +215,9 @@ public final class MediaOtaDialog {
    // main thread, but a second tap must never dispatch a duplicate request.
    if(state!=State.OFFER||!primary.isEnabled()||action==null)return;
    primary.setEnabled(false);
-   try{action.run();}catch(RuntimeException error){primary.setEnabled(true);throw error;}
+   try{action.run();}catch(RuntimeException error){
+    fail("Не удалось начать загрузку: "+(error.getMessage()==null?"ошибка запуска":error.getMessage()),action);
+   }
   });secondary.setText("ПОЗЖЕ");
   bytes.setText("");percent.setText("");
  }
@@ -345,7 +347,11 @@ public final class MediaOtaDialog {
   primary.setOnClickListener(v->{
    if(state!=State.READY||!primary.isEnabled()||install==null)return;
    primary.setEnabled(false);
-   try{install.run();}catch(RuntimeException error){primary.setEnabled(true);throw error;}
+   try{install.run();}catch(RuntimeException error){
+    // A failed installer launch must not terminate the Activity or lose the verified APK.
+    primary.setEnabled(true);
+    detail.setText("Не удалось открыть установщик: "+(error.getMessage()==null?"ошибка запуска":error.getMessage()));
+   }
   });
  }
  public void current(String version){
@@ -372,7 +378,10 @@ public final class MediaOtaDialog {
    // Dispatch it once, even under rapid taps or a delayed main-thread update.
    if(state!=State.ERROR||!primary.isEnabled()||retry==null)return;
    primary.setEnabled(false);
-   try{retry.run();}catch(RuntimeException error){primary.setEnabled(true);throw error;}
+   try{retry.run();}catch(RuntimeException error){
+    primary.setEnabled(true);
+    detail.setText("Не удалось повторить операцию: "+(error.getMessage()==null?"ошибка запуска":error.getMessage()));
+   }
   });
  }
  /** Transfer rate excludes cached/resumed bytes and uses a monotonic clock. */
