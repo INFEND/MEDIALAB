@@ -244,10 +244,14 @@ public final class MediaOtaDialog {
   if(done<0||state!=State.DOWNLOAD)return;
   // Ignore stale callbacks from an earlier transfer and keep progress monotonic.
   // A server may supply the final length after an initially unknown total.
-  if(state==State.DOWNLOAD && total>0 && expectedBytes>0 && total!=expectedBytes)return;
-  if(state==State.DOWNLOAD && done<receivedBytes)return;
-   if(total>0 && done>total)return;
-  receivedBytes=done;expectedBytes=total;sampleRate(done,total);
+  // Once the server supplied a reliable length, later callbacks with an
+  // unknown length must not erase it and make the ring indeterminate again.
+  // Reject conflicting known lengths instead of displaying misleading progress.
+  if(total>0 && expectedBytes>0 && total!=expectedBytes)return;
+  if(done<receivedBytes)return;
+  final long effectiveTotal=total>0?total:expectedBytes;
+  if(effectiveTotal>0 && done>effectiveTotal)return;
+  receivedBytes=done;expectedBytes=effectiveTotal;sampleRate(done,effectiveTotal);
   state=State.DOWNLOAD;
   primary.setEnabled(!cancelRequested);
   primary.setText("ОТМЕНИТЬ");primary.setVisibility(cancelDownload==null?View.GONE:View.VISIBLE);
@@ -256,22 +260,22 @@ public final class MediaOtaDialog {
   title.setText("Обновление MediaLAB");stageLabel.setText("Загрузка обновления");detail.setText("Защищённая загрузка MediaLAB");
   // Keep the progress arc determinate, with the numeric indicator synchronized below.
   ring.setChecking(false);
-  progress.setIndeterminate(total<=0);
+  progress.setIndeterminate(effectiveTotal<=0);
   if(numberAnimation!=null){numberAnimation.cancel();numberAnimation=null;}
-  if(total<=0){
+  if(effectiveTotal<=0){
    displayedBytes=done;bytes.setText(ConvertEngine.humanBytes(done));
    percent.setText("");ring.setChecking(dialog.isShowing());return;
   }
   final long fromBytes=Math.min(displayedBytes,done);
   if(!dialog.isShowing()||!motionEnabled||!android.animation.ValueAnimator.areAnimatorsEnabled()){
-   renderDownload(done,total);return;
+   renderDownload(done,effectiveTotal);return;
   }
   numberAnimation=android.animation.ValueAnimator.ofFloat(0f,1f);
   numberAnimation.setDuration(170);
   numberAnimation.setInterpolator(new android.view.animation.DecelerateInterpolator());
   numberAnimation.addUpdateListener(animation->{
    long shown=fromBytes+(long)((done-fromBytes)*(float)animation.getAnimatedValue());
-   renderDownload(shown,total);
+   renderDownload(shown,effectiveTotal);
   });
   numberAnimation.start();
  }
