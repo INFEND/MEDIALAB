@@ -365,8 +365,12 @@ public final class MediaOtaDialog {
    primary.setEnabled(false);
    try{install.run();}catch(RuntimeException error){
     // A failed installer launch must not terminate the Activity or lose the verified APK.
-    primary.setEnabled(true);
     detail.setText("Не удалось открыть установщик: "+(error.getMessage()==null?"ошибка запуска":error.getMessage()));
+   }finally{
+    // startActivity() returns immediately, even if the user later cancels the
+    // system installer. Never strand a verified APK behind a disabled button.
+    // The UI thread processes the next click only after this callback returns.
+    primary.setEnabled(true);
    }
   });
  }
