@@ -222,10 +222,16 @@ public final class MediaOtaDialog {
   bytes.setText("");percent.setText("");
  }
  public void setCancelDownload(Runnable action){cancelDownload=action;}
- private void requestCancelDownload(){
-  if(cancelDownload==null||cancelRequested||state!=State.DOWNLOAD)return;
+ /** A recreated dialog must retain a pending cancellation without issuing it again. */
+ void restoreCancellation(){
+  if(state!=State.DOWNLOAD)return;
   cancelRequested=true;
   primary.setEnabled(false);
+  detail.setText("Останавливаем загрузку…");
+ }
+ private void requestCancelDownload(){
+  if(cancelDownload==null||cancelRequested||state!=State.DOWNLOAD)return;
+  restoreCancellation();
   try {
    cancelDownload.run();
   } catch(RuntimeException error) {
@@ -257,7 +263,8 @@ public final class MediaOtaDialog {
   primary.setText("ОТМЕНИТЬ");primary.setVisibility(cancelDownload==null?View.GONE:View.VISIBLE);
   primary.setOnClickListener(v->{requestCancelDownload();});
   secondary.setText("СКРЫТЬ");
-  title.setText("Обновление MediaLAB");stageLabel.setText("Загрузка обновления");detail.setText("Защищённая загрузка MediaLAB");
+  title.setText("Обновление MediaLAB");stageLabel.setText("Загрузка обновления");
+  detail.setText(cancelRequested?"Останавливаем загрузку…":"Защищённая загрузка MediaLAB");
   // Keep the progress arc determinate, with the numeric indicator synchronized below.
   ring.setChecking(false);
   progress.setIndeterminate(effectiveTotal<=0);
@@ -352,7 +359,7 @@ public final class MediaOtaDialog {
   title.setText("Обновление MediaLAB");
   stageLabel.setText("Повторная загрузка с начала");
   detail.setText("Сервер не поддержал продолжение. Сохранённый диапазон заменяется.");
-  primary.setEnabled(true);primary.setText("ОТМЕНИТЬ");
+  primary.setEnabled(!cancelRequested);primary.setText("ОТМЕНИТЬ");
   primary.setVisibility(cancelDownload==null?View.GONE:View.VISIBLE);
   primary.setOnClickListener(v->{requestCancelDownload();});
   secondary.setText("СКРЫТЬ");
