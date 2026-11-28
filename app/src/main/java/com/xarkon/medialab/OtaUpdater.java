@@ -175,9 +175,22 @@ public final class OtaUpdater {
     private static String sessionNotes="";
     private static java.util.function.Consumer<MediaOtaDialog> snapshot;
     private static void publish(java.util.function.Consumer<MediaOtaDialog> state){
-        snapshot=state;
+        publish(state,state);
+    }
+    private static void publish(java.util.function.Consumer<MediaOtaDialog> state,
+                                java.util.function.Consumer<MediaOtaDialog> restore){
+        snapshot=restore;
         Activity a=owner.get(); MediaOtaDialog ui=active;
         if(a!=null&&!a.isFinishing()&&!a.isDestroyed()&&ui!=null)state.accept(ui);
+    }
+    private static void publishDownloadProgress(long received,long total){
+        // Live progress is deliberately guarded by the dialog's DOWNLOAD state.
+        // A new dialog starts in CHECK, so replay must first restore the stage
+        // and the exact saved counters, not just deliver an incremental event.
+        publish(d->d.downloading(received,total),d->{
+            d.reconnecting(received,total);
+            d.downloading(received,total);
+        });
     }
     private static void finish(java.util.function.Consumer<MediaOtaDialog> state){busy=false;publish(state);}
     private static void withOwner(java.util.function.BiConsumer<Activity,MediaOtaDialog> action){
@@ -196,8 +209,14 @@ public final class OtaUpdater {
         MediaOtaDialog ui=new MediaOtaDialog(a,accent);
         ui.setCancelDownload(OtaUpdater::requestCancel);
         owner=new java.lang.ref.WeakReference<>(a);active=ui;
+        // Restore before showing the window: no stale CHECK frame or animation.
+        if(snapshot!=null){
+            ui.setHistory(sessionNotes);
+            snapshot.accept(ui);
+            if(busy&&cancelDownload.get())ui.showCancelPending();
+        }
         ui.show();
-        if(snapshot!=null){ui.setHistory(sessionNotes);snapshot.accept(ui);if(busy||!ui.needsRefresh())return;}
+        if(snapshot!=null&&(busy||!ui.needsRefresh()))return;
         check(a,accent,ui);
     }
     static Release readRelease() throws Exception {
@@ -230,13 +249,14 @@ public final class OtaUpdater {
         });
     }
     private static void download(Activity a,Release release,MediaOtaDialog ui){
-        download(a,release,ui,false);
+        download(a,release,ui,-1L);
     }
-    private static void download(Activity a,Release release,MediaOtaDialog ui,boolean resumed){
+    private static void download(Activity a,Release release,MediaOtaDialog ui,long resumeOffset){
         if(busy)return;
         cancelDownload.set(false);
         busy=true;
-        if(!resumed)publish(d->d.preparing("Подготовка загрузки…","MediaLAB "+release.name));
+        if(resumeOffset>=0)publish(d->d.reconnecting(resumeOffset,release.size));
+        else publish(d->d.preparing("Подготовка загрузки…","MediaLAB "+release.name));
         worker.execute(()->{
             File target=file(a),temp=new File(target.getParentFile(),"MediaLAB-candidate-"+release.sha+".apk");
             try{
@@ -284,6 +304,12 @@ public final class OtaUpdater {
                 }
                 if(target.getParentFile().getUsableSpace()<release.size-offset+4L*1024*1024)
                     throw new IOException("Недостаточно места для обновления");
+                // Reconcile a stale/corrupt partial file before emitting progress.
+                // Otherwise the monotonic guard can reject a legitimate restart.
+                if(resumeOffset>=0&&offset!=resumeOffset){
+                    final long actualOffset=offset;
+                    main.post(()->publish(d->d.reconnecting(actualOffset,release.size)));
+                }
                 long got=offset;
                 checkCanceled();
                 int partialResponses=0;
@@ -329,7 +355,7 @@ public final class OtaUpdater {
                         final boolean restartedFromZero=requestedOffset>0 && initial==0;
                         main.post(()->{
                             if(restartedFromZero)publish(d->d.restartingFromZero(release.size));
-                            publish(d->d.downloading(initial,release.size));
+                            publishDownloadProgress(initial,release.size);
                         });
                         long lastUi=0;int lastTenth=-1;
                         try(InputStream in=conn.getInputStream();OutputStream out=new FileOutputStream(temp,got>0)){
@@ -348,7 +374,7 @@ public final class OtaUpdater {
                                 long now=android.os.SystemClock.uptimeMillis();
                                 if(tenth==1000||(tenth!=lastTenth&&now-lastUi>=120)){
                                     lastUi=now;lastTenth=tenth;long received=got;
-                                    main.post(()->publish(d->d.downloading(received,release.size)));
+                                    main.post(()->publishDownloadProgress(received,release.size));
                                 }
                             }
                         }
@@ -399,7 +425,7 @@ public final class OtaUpdater {
                     // snapshot is measured. Never discard the digest-bound partial APK.
                     long saved=temp.isFile()?Math.min(temp.length(),release.size):0;
                     main.post(()->finish(d->d.paused(saved,release.size,
-                        ()->withOwner((host,dialog)->download(host,release,dialog,true)))));
+                        ()->withOwner((host,dialog)->download(host,release,dialog,saved)))));
                 }else{
                     String message=e.getMessage()==null?"Ошибка загрузки":e.getMessage();
                     main.post(()->finish(d->d.fail(message,
